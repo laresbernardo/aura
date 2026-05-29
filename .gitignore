@@ -1,0 +1,26 @@
+# macOS System Files
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Xcode / Build Files
+build/
+DerivedData/
+*.xcodeproj/xcuserdata/
+*.xcodeproj/project.xcworkspace/xcuserdata/
+*.noindex
+*.moved-aside
+*.xcuserstate
+*.xcworkspace
+
+# Swift Package Manager
+.build/
+.swiftpm/
+Packages/
+Package.resolved
+
+# Temporary / Backup Files
+*.bak
+*~
+*.swp
+.env

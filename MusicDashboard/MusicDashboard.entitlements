@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Enables app sandboxing for standard App Store style macOS apps -->
+    <key>com.apple.security.app-sandbox</key>
+    <true/>
+    
+    <!-- Allows automation scripting control over other native macOS apps like Music -->
+    <key>com.apple.security.automation.apple-events</key>
+    <true/>
+    
+    <!-- Permits reading files selected by the user (useful for custom artwork or export) -->
+    <key>com.apple.security.files.user-selected.read-only</key>
+    <true/>
+</dict>
+</plist>
