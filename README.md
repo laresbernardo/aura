@@ -22,9 +22,9 @@ You can set up and run Aura on your Mac using two different workflows. **Option 
 This method compiles all the Swift files natively on your Mac, signs the binary with local entitlements, and packs it into a premium drag-and-drop `Aura.dmg` disk installer automatically.
 
 1. Open **Terminal** on your Mac.
-2. Navigate to the project folder and run the compile script:
+2. Navigate to your cloned repository folder and run the compile script:
    ```bash
-   cd /usr/local/google/home/blares/Documents/Aura
+   cd Aura
    ./build_dmg.sh
    ```
 3. Once completed, double-click the newly generated **`Aura.dmg`** file in your project root.
