@@ -4,6 +4,8 @@ import Charts
 struct PhotosPlacesView: View {
     @ObservedObject var manager: PhotosLibraryManager
     
+    @State private var hoveredBucketLabel: String? = nil
+    
     enum DestinationGrouping: String, CaseIterable, Identifiable {
         case city = "City"
         case country = "Country"
@@ -35,23 +37,55 @@ struct PhotosPlacesView: View {
                         .foregroundColor(.secondary)
                 }
                 
-                if manager.isGeocoding && manager.pendingGeocodeCount > 0 {
+                if manager.pendingGeocodeCount > 0 {
                     HStack(spacing: 12) {
-                        ProgressView()
-                            .controlSize(.small)
-                            .tint(.emerald)
-                        Text("Analyzing travel places in the background... (\(manager.pendingGeocodeCount) locations remaining)")
-                            .font(.system(size: 11, weight: .bold, design: .rounded))
-                            .foregroundColor(.emerald)
+                        if manager.isGeocoding {
+                            ProgressView()
+                                .controlSize(.small)
+                                .tint(.emerald)
+                            Text("Analyzing travel places in the background... (\(manager.pendingGeocodeCount) locations remaining)")
+                                .font(.system(size: 11, weight: .bold, design: .rounded))
+                                .foregroundColor(.emerald)
+                        } else {
+                            Image(systemName: "pause.circle.fill")
+                                .foregroundColor(.orange)
+                                .font(.system(size: 14))
+                            Text("Travel analysis paused (\(manager.pendingGeocodeCount) locations remaining)")
+                                .font(.system(size: 11, weight: .bold, design: .rounded))
+                                .foregroundColor(.orange)
+                        }
+                        
                         Spacer()
+                        
+                        Button(action: {
+                            manager.toggleGeocodingPause()
+                        }) {
+                            HStack(spacing: 6) {
+                                Image(systemName: manager.isGeocoding ? "pause.fill" : "play.fill")
+                                    .font(.system(size: 10, weight: .bold))
+                                Text(manager.isGeocoding ? "Pause" : "Resume")
+                                    .font(.system(size: 10, weight: .bold))
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .background(
+                                RoundedRectangle(cornerRadius: 6)
+                                    .fill(Color.white.opacity(0.1))
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 6)
+                                    .stroke(Color.white.opacity(0.15), lineWidth: 1)
+                            )
+                        }
+                        .buttonStyle(.plain)
                     }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 10)
-                    .background(Color.emerald.opacity(0.08))
+                    .background(manager.isGeocoding ? Color.emerald.opacity(0.08) : Color.orange.opacity(0.08))
                     .cornerRadius(8)
                     .overlay(
                         RoundedRectangle(cornerRadius: 8)
-                            .stroke(Color.emerald.opacity(0.2), lineWidth: 1)
+                            .stroke(manager.isGeocoding ? Color.emerald.opacity(0.2) : Color.orange.opacity(0.2), lineWidth: 1)
                     )
                     .transition(.move(edge: .top).combined(with: .opacity))
                     .animation(.spring(), value: manager.isGeocoding)
@@ -217,6 +251,37 @@ struct PhotosPlacesView: View {
                                         )
                                     )
                                     .cornerRadius(4)
+                                    .annotation(position: .top) {
+                                        if hoveredBucketLabel == bucket.label && bucket.count > 0 {
+                                            Text("\(bucket.count)")
+                                                .font(.system(size: 10, weight: .bold, design: .rounded))
+                                                .foregroundColor(.white)
+                                                .padding(.horizontal, 6)
+                                                .padding(.vertical, 3)
+                                                .background(Color.blue.opacity(0.85))
+                                                .cornerRadius(4)
+                                                .offset(y: -4)
+                                        }
+                                    }
+                                }
+                                .chartOverlay { proxy in
+                                    GeometryReader { geo in
+                                        Rectangle()
+                                            .fill(Color.clear)
+                                            .contentShape(Rectangle())
+                                            .onContinuousHover { phase in
+                                                switch phase {
+                                                case .active(let location):
+                                                    if let bucket: String = proxy.value(atX: location.x) {
+                                                        hoveredBucketLabel = bucket
+                                                    } else {
+                                                        hoveredBucketLabel = nil
+                                                    }
+                                                case .ended:
+                                                    hoveredBucketLabel = nil
+                                                }
+                                            }
+                                    }
                                 }
                                 .chartYAxis {
                                     AxisMarks { value in

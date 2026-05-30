@@ -3,6 +3,7 @@ import SwiftUI
 import Combine
 import AppKit
 import CoreLocation
+import MapKit
 import Photos
 
 // MARK: - Photo Model
@@ -20,6 +21,47 @@ struct Photo: Codable, Identifiable, Hashable {
     // Geocoded Place Info (Mutable for background geocoding updates)
     var cityName: String?
     var countryName: String?
+    
+    // Additional Properties
+    let isLivePhoto: Bool
+    let cameraModel: String?
+    
+    enum CodingKeys: String, CodingKey {
+        case id, filename, dateAdded, latitude, longitude, altitude, width, height, isFavorite, cityName, countryName, isLivePhoto, cameraModel
+    }
+    
+    init(id: String, filename: String, dateAdded: Double, latitude: Double?, longitude: Double?, altitude: Double?, width: Int, height: Int, isFavorite: Bool, cityName: String? = nil, countryName: String? = nil, isLivePhoto: Bool = false, cameraModel: String? = nil) {
+        self.id = id
+        self.filename = filename
+        self.dateAdded = dateAdded
+        self.latitude = latitude
+        self.longitude = longitude
+        self.altitude = altitude
+        self.width = width
+        self.height = height
+        self.isFavorite = isFavorite
+        self.cityName = cityName
+        self.countryName = countryName
+        self.isLivePhoto = isLivePhoto
+        self.cameraModel = cameraModel
+    }
+    
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        filename = try container.decode(String.self, forKey: .filename)
+        dateAdded = try container.decode(Double.self, forKey: .dateAdded)
+        latitude = try container.decodeIfPresent(Double.self, forKey: .latitude)
+        longitude = try container.decodeIfPresent(Double.self, forKey: .longitude)
+        altitude = try container.decodeIfPresent(Double.self, forKey: .altitude)
+        width = try container.decode(Int.self, forKey: .width)
+        height = try container.decode(Int.self, forKey: .height)
+        isFavorite = try container.decode(Bool.self, forKey: .isFavorite)
+        cityName = try container.decodeIfPresent(String.self, forKey: .cityName)
+        countryName = try container.decodeIfPresent(String.self, forKey: .countryName)
+        isLivePhoto = try container.decodeIfPresent(Bool.self, forKey: .isLivePhoto) ?? false
+        cameraModel = try container.decodeIfPresent(String.self, forKey: .cameraModel)
+    }
     
     // Custom Computed Metadata
     var mediaType: String {
@@ -106,6 +148,7 @@ class PhotosLibraryManager: ObservableObject {
     @Published var syncError: String? = nil
     @Published var syncStatus: String = ""
     @Published var isGeocoding: Bool = false
+    @Published var isGeocodingPaused: Bool = false
     @Published var sourceMode: SourceMode = .demo
     @Published var photosAppRunningState: PhotosAppState = .unknown
     
@@ -154,6 +197,35 @@ class PhotosLibraryManager: ObservableObject {
         } catch {
             // Silently fall back if the cache is corrupt or missing
         }
+    }
+    
+    nonisolated private func cleanCameraModel(kvcModel: String?, filename: String, isLivePhoto: Bool, width: Int, height: Int) -> String {
+        if let kvc = kvcModel?.trimmingCharacters(in: .whitespacesAndNewlines), !kvc.isEmpty {
+            if kvc.localizedCaseInsensitiveContains("iPhone") {
+                return "iPhone"
+            }
+            if kvc.localizedCaseInsensitiveContains("GoPro") || kvc.localizedCaseInsensitiveContains("HERO") {
+                return "GoPro HERO"
+            }
+            return kvc
+        }
+        
+        let lower = filename.lowercased()
+        let ext = (filename as NSString).pathExtension.lowercased()
+        
+        if lower.hasPrefix("gopr") || lower.hasPrefix("gp") || lower.hasPrefix("g0") || lower.contains("gopro") {
+            return "GoPro HERO"
+        }
+        
+        if ext == "heic" || isLivePhoto {
+            return "iPhone"
+        }
+        
+        if lower.hasPrefix("img_") {
+            return "iPhone"
+        }
+        
+        return "iPhone"
     }
     
     func savePhotosToCache() {
@@ -286,7 +358,7 @@ class PhotosLibraryManager: ObservableObject {
                 
                 // Super safe exception-guarded filename lookup using responds(to:)
                 var filename = "IMG_\(index).jpg"
-                if asset.responds(to: Selector(("filename"))) {
+                if asset.responds(to: NSSelectorFromString("filename")) {
                     if let name = asset.value(forKey: "filename") as? String {
                         filename = name
                     }
@@ -311,6 +383,14 @@ class PhotosLibraryManager: ObservableObject {
                 let width = asset.pixelWidth
                 let height = asset.pixelHeight
                 
+                let isLive = asset.mediaSubtypes.contains(.photoLive)
+                
+                var kvcCamera: String? = nil
+                if asset.responds(to: NSSelectorFromString("cameraModel")) {
+                    kvcCamera = asset.value(forKey: "cameraModel") as? String
+                }
+                let camera = manager.cleanCameraModel(kvcModel: kvcCamera, filename: filename, isLivePhoto: isLive, width: width, height: height)
+                
                 let photo = Photo(
                     id: id,
                     filename: filename,
@@ -320,7 +400,9 @@ class PhotosLibraryManager: ObservableObject {
                     altitude: altitude,
                     width: width,
                     height: height,
-                    isFavorite: isFavorite
+                    isFavorite: isFavorite,
+                    isLivePhoto: isLive,
+                    cameraModel: camera
                 )
                 list.append(photo)
                 
@@ -421,7 +503,11 @@ class PhotosLibraryManager: ObservableObject {
         allPhotos.filter { $0.latitude != nil && $0.cityName == nil }.count
     }
     
-    private func startGeocoding() {
+    func startGeocoding() {
+        guard !isGeocodingPaused else {
+            isGeocoding = false
+            return
+        }
         geocodeTask?.cancel()
         isGeocoding = true
         
@@ -433,8 +519,6 @@ class PhotosLibraryManager: ObservableObject {
                     manager.savePhotosToCache()
                 }
             }
-            
-            let geocoder = CLGeocoder()
             
             // Fetch cached values
             var cache = UserDefaults.standard.dictionary(forKey: "geocoded_locations_cache") as? [String: [String: String]] ?? [:]
@@ -468,15 +552,30 @@ class PhotosLibraryManager: ObservableObject {
                     do {
                         try await Task.sleep(nanoseconds: 800_000_000) // 0.8 seconds
                         let location = CLLocation(latitude: lat, longitude: lon)
-                        let placemarks = try await geocoder.reverseGeocodeLocation(location)
                         
-                        if let placemark = placemarks.first {
-                            city = placemark.locality ?? placemark.subAdministrativeArea ?? placemark.administrativeArea ?? "Unknown City"
-                            country = placemark.country ?? "Unknown Country"
-                            
-                            cache[key] = ["city": city, "country": country]
-                            updated = true
-                            found = true
+                        if #available(macOS 26.0, *) {
+                            if let request = MKReverseGeocodingRequest(location: location) {
+                                let mapItems = try await request.mapItems
+                                if let mapItem = mapItems.first, let representations = mapItem.addressRepresentations {
+                                    city = representations.cityName ?? "Unknown City"
+                                    country = representations.regionName ?? "Unknown Country"
+                                    
+                                    cache[key] = ["city": city, "country": country]
+                                    updated = true
+                                    found = true
+                                }
+                            }
+                        } else {
+                            let geocoder = CLGeocoder()
+                            let placemarks = try await geocoder.reverseGeocodeLocation(location)
+                            if let placemark = placemarks.first {
+                                city = placemark.locality ?? placemark.subAdministrativeArea ?? placemark.administrativeArea ?? "Unknown City"
+                                country = placemark.country ?? "Unknown Country"
+                                
+                                cache[key] = ["city": city, "country": country]
+                                updated = true
+                                found = true
+                            }
                         }
                     } catch {
                         // Sleep a bit longer if we hit a rate limit, then continue
@@ -522,6 +621,18 @@ class PhotosLibraryManager: ObservableObject {
         }
     }
     
+    func toggleGeocodingPause() {
+        if isGeocodingPaused {
+            isGeocodingPaused = false
+            startGeocoding()
+        } else {
+            isGeocodingPaused = true
+            geocodeTask?.cancel()
+            geocodeTask = nil
+            isGeocoding = false
+        }
+    }
+    
     // MARK: - High-Fidelity Procedural Mock Data Generator (Demo Mode)
     
     func loadDemoLibrary() {
@@ -541,14 +652,14 @@ class PhotosLibraryManager: ObservableObject {
         }
         
         let destinations = [
-            LocationSpec(city: "Kyoto", country: "Japan", lat: 35.0116, lon: 135.7681, camera: "Fujifilm X-T5", isWidePreferring: false),
-            LocationSpec(city: "Tokyo", country: "Japan", lat: 35.6762, lon: 139.6503, camera: "Fujifilm X-T5", isWidePreferring: false),
-            LocationSpec(city: "Paris", country: "France", lat: 48.8566, lon: 2.3522, camera: "Sony A7R V", isWidePreferring: false),
-            LocationSpec(city: "Rome", country: "Italy", lat: 41.9028, lon: 12.4964, camera: "Sony A7R V", isWidePreferring: false),
-            LocationSpec(city: "Maui", country: "United States", lat: 20.7984, lon: -156.3319, camera: "DJI Mavic 3", isWidePreferring: true),
-            LocationSpec(city: "Iceland Wilderness", country: "Iceland", lat: 64.1466, lon: -21.9426, camera: "Canon EOS R5", isWidePreferring: true),
-            LocationSpec(city: "Cairo", country: "Egypt", lat: 30.0444, lon: 31.2357, camera: "Sony A7R V", isWidePreferring: false),
-            LocationSpec(city: "Sydney", country: "Australia", lat: -33.8688, lon: 151.2093, camera: "iPhone 15 Pro", isWidePreferring: false)
+            LocationSpec(city: "Kyoto", country: "Japan", lat: 35.0116, lon: 135.7681, camera: "iPhone", isWidePreferring: false),
+            LocationSpec(city: "Tokyo", country: "Japan", lat: 35.6762, lon: 139.6503, camera: "iPhone", isWidePreferring: false),
+            LocationSpec(city: "Paris", country: "France", lat: 48.8566, lon: 2.3522, camera: "iPhone", isWidePreferring: false),
+            LocationSpec(city: "Rome", country: "Italy", lat: 41.9028, lon: 12.4964, camera: "iPhone", isWidePreferring: false),
+            LocationSpec(city: "Maui", country: "United States", lat: 20.7984, lon: -156.3319, camera: "GoPro HERO", isWidePreferring: true),
+            LocationSpec(city: "Iceland Wilderness", country: "Iceland", lat: 64.1466, lon: -21.9426, camera: "GoPro HERO", isWidePreferring: true),
+            LocationSpec(city: "Cairo", country: "Egypt", lat: 30.0444, lon: 31.2357, camera: "iPhone", isWidePreferring: false),
+            LocationSpec(city: "Sydney", country: "Australia", lat: -33.8688, lon: 151.2093, camera: "iPhone", isWidePreferring: false)
         ]
         
         // Seed 1,320 photos captured over the past 5 years
@@ -570,7 +681,7 @@ class PhotosLibraryManager: ObservableObject {
                 country = "United States"
                 lat = 37.7749 + Double.random(in: -0.05...0.05)
                 lon = -122.4194 + Double.random(in: -0.05...0.05)
-                camera = "iPhone 15 Pro"
+                camera = "iPhone"
                 altitude = Double.random(in: 10...60)
             } else {
                 let d = destinations[destIdx]
@@ -580,7 +691,7 @@ class PhotosLibraryManager: ObservableObject {
                 lon = d.lon + Double.random(in: -0.01...0.01)
                 camera = d.camera
                 
-                if d.camera == "DJI Mavic 3" {
+                if d.camera == "GoPro HERO" {
                     altitude = Double.random(in: 40...140) // Drone shots elevation!
                 } else if d.city == "Iceland Wilderness" {
                     altitude = Double.random(in: 120...650) // Mountain elevations
@@ -627,7 +738,7 @@ class PhotosLibraryManager: ObservableObject {
             let height: Int
             let aspectRand = Double.random(in: 0...100)
             
-            if camera == "DJI Mavic 3" || (isHome && aspectRand < 10) {
+            if camera == "GoPro HERO" || (isHome && aspectRand < 10) {
                 // Wide / Panoramic crops
                 width = 3980
                 height = 1320
@@ -648,7 +759,14 @@ class PhotosLibraryManager: ObservableObject {
             // Filename extensions
             let isVideo = (i % 12 == 0) // 8% videos
             let ext = isVideo ? ["mp4", "mov"].randomElement()! : "jpg"
-            let fn = isVideo ? "VID_\(1000 + i).\(ext)" : "IMG_\(4000 + i).\(ext)"
+            let fn: String
+            if camera == "GoPro HERO" {
+                fn = isVideo ? "GP_\(1000 + i).\(ext)" : "GOPR\(4000 + i).\(ext)"
+            } else {
+                fn = isVideo ? "VID_\(1000 + i).\(ext)" : "IMG_\(4000 + i).\(ext)"
+            }
+            
+            let isLive = !isVideo && (i % 3 != 0) // ~67% Live Photos
             
             mock.append(Photo(
                 id: "demo-photo-\(i)",
@@ -661,7 +779,9 @@ class PhotosLibraryManager: ObservableObject {
                 height: height,
                 isFavorite: isFav,
                 cityName: city,
-                countryName: country
+                countryName: country,
+                isLivePhoto: isLive,
+                cameraModel: camera
             ))
         }
         
@@ -716,8 +836,7 @@ class PhotosLibraryManager: ObservableObject {
         for item in photos {
             if item.mediaType == "Video" {
                 videoCount += 1
-            } else if item.isFavorite && item.id.hashValue % 3 == 0 {
-                // Heuristic: Classify a subset as live photos in demo/direct sync
+            } else if item.isLivePhoto {
                 livePhotoCount += 1
             } else {
                 photoCount += 1
@@ -760,7 +879,8 @@ class PhotosLibraryManager: ObservableObject {
     // Hourly capture counts
     var captureHourCounts: [Int: Int] {
         var counts: [Int: Int] = [:]
-        let cal = Calendar.current
+        var cal = Calendar.current
+        cal.timeZone = TimeZone.current
         for item in photos {
             let hour = cal.component(.hour, from: item.capturedDate)
             counts[hour, default: 0] += 1
@@ -824,18 +944,7 @@ class PhotosLibraryManager: ObservableObject {
     var cameraDistribution: [CameraStat] {
         var counts: [String: Int] = [:]
         for item in photos {
-            let camera: String
-            // Guess camera based on filename or procedural index
-            let num = item.id.hashValue
-            if item.filename.contains("VID") {
-                camera = "iPhone 15 Pro"
-            } else if item.altitude ?? 0.0 > 100 && num % 4 == 0 {
-                camera = "DJI Mavic 3"
-            } else {
-                let brands = ["Sony A7R V", "Fujifilm X-T5", "iPhone 15 Pro", "Canon EOS R5"]
-                let idx = abs(num) % brands.count
-                camera = brands[idx]
-            }
+            let camera = item.cameraModel ?? "iPhone"
             counts[camera, default: 0] += 1
         }
         return counts.map { CameraStat(camera: $0.key, count: $0.value) }.sorted(by: { $0.count > $1.count })
@@ -1041,8 +1150,10 @@ class PhotosLibraryManager: ObservableObject {
         let gearScore = (mirrorlessCount / total) * 100.0
         
         // 3. Golden Hour Ratio
+        var cal = Calendar.current
+        cal.timeZone = TimeZone.current
         let goldenHourCount = Double(photos.filter { item in
-            let hour = Calendar.current.component(.hour, from: item.capturedDate)
+            let hour = cal.component(.hour, from: item.capturedDate)
             return hour >= 17 && hour < 20 // 5 PM - 8 PM (Sunset/Magic hour)
         }.count)
         let goldenHourScore = (goldenHourCount / total) * 100.0
@@ -1055,7 +1166,7 @@ class PhotosLibraryManager: ObservableObject {
         
         // 5. Night Owl Ratio (8 PM - 6 AM)
         let nightCount = Double(photos.filter { item in
-            let hour = Calendar.current.component(.hour, from: item.capturedDate)
+            let hour = cal.component(.hour, from: item.capturedDate)
             return hour >= 20 || hour < 6
         }.count)
         let nightScore = (nightCount / total) * 100.0

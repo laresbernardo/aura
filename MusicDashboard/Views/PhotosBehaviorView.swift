@@ -4,6 +4,10 @@ import Charts
 struct PhotosBehaviorView: View {
     @ObservedObject var manager: PhotosLibraryManager
     
+    @State private var hoveredHour: Int? = nil
+    @State private var hoveredCamera: String? = nil
+    @State private var hoveredCrop: String? = nil
+    
     var body: some View {
         ScrollView(.vertical, showsIndicators: false) {
             VStack(alignment: .leading, spacing: 28) {
@@ -85,6 +89,37 @@ struct PhotosBehaviorView: View {
                                         )
                                     )
                                     .cornerRadius(4)
+                                    .annotation(position: .top) {
+                                        if hoveredHour == hour && count > 0 {
+                                            Text("\(count)")
+                                                .font(.system(size: 10, weight: .bold, design: .rounded))
+                                                .foregroundColor(.white)
+                                                .padding(.horizontal, 6)
+                                                .padding(.vertical, 3)
+                                                .background(Color.emerald.opacity(0.85))
+                                                .cornerRadius(4)
+                                                .offset(y: -4)
+                                        }
+                                    }
+                                }
+                            }
+                            .chartOverlay { proxy in
+                                GeometryReader { geo in
+                                    Rectangle()
+                                        .fill(Color.clear)
+                                        .contentShape(Rectangle())
+                                        .onContinuousHover { phase in
+                                            switch phase {
+                                            case .active(let location):
+                                                if let hour: Int = proxy.value(atX: location.x) {
+                                                    hoveredHour = hour
+                                                } else {
+                                                    hoveredHour = nil
+                                                }
+                                            case .ended:
+                                                hoveredHour = nil
+                                            }
+                                        }
                                 }
                             }
                             .chartYAxis {
@@ -144,9 +179,39 @@ struct PhotosBehaviorView: View {
                                     )
                                     .cornerRadius(4)
                                     .annotation(position: .trailing) {
-                                        Text("\(stat.count)")
-                                            .font(.system(.caption2, design: .monospaced))
-                                            .foregroundColor(.white.opacity(0.8))
+                                        if hoveredCamera == stat.camera {
+                                            Text("\(stat.count) photos")
+                                                .font(.system(.caption2, design: .monospaced))
+                                                .fontWeight(.bold)
+                                                .foregroundColor(.white)
+                                                .padding(.horizontal, 6)
+                                                .padding(.vertical, 3)
+                                                .background(Color.cyan.opacity(0.85))
+                                                .cornerRadius(4)
+                                        } else {
+                                            Text("\(stat.count)")
+                                                .font(.system(.caption2, design: .monospaced))
+                                                .foregroundColor(.white.opacity(0.8))
+                                        }
+                                    }
+                                }
+                                .chartOverlay { proxy in
+                                    GeometryReader { geo in
+                                        Rectangle()
+                                            .fill(Color.clear)
+                                            .contentShape(Rectangle())
+                                            .onContinuousHover { phase in
+                                                switch phase {
+                                                case .active(let location):
+                                                    if let camera: String = proxy.value(atY: location.y) {
+                                                        hoveredCamera = camera
+                                                    } else {
+                                                        hoveredCamera = nil
+                                                    }
+                                                case .ended:
+                                                    hoveredCamera = nil
+                                                }
+                                            }
                                     }
                                 }
                                 .chartXAxis(.hidden)
@@ -196,9 +261,39 @@ struct PhotosBehaviorView: View {
                                     )
                                     .cornerRadius(4)
                                     .annotation(position: .trailing) {
-                                        Text(String(format: "%.1f%%", stat.percentage))
-                                            .font(.system(.caption2, design: .monospaced))
-                                            .foregroundColor(.white.opacity(0.8))
+                                        if hoveredCrop == stat.category {
+                                            Text("\(stat.count) photos")
+                                                .font(.system(.caption2, design: .monospaced))
+                                                .fontWeight(.bold)
+                                                .foregroundColor(.white)
+                                                .padding(.horizontal, 6)
+                                                .padding(.vertical, 3)
+                                                .background(Color.purple.opacity(0.85))
+                                                .cornerRadius(4)
+                                        } else {
+                                            Text(String(format: "%.1f%%", stat.percentage))
+                                                .font(.system(.caption2, design: .monospaced))
+                                                .foregroundColor(.white.opacity(0.8))
+                                        }
+                                    }
+                                }
+                                .chartOverlay { proxy in
+                                    GeometryReader { geo in
+                                        Rectangle()
+                                            .fill(Color.clear)
+                                            .contentShape(Rectangle())
+                                            .onContinuousHover { phase in
+                                                switch phase {
+                                                case .active(let location):
+                                                    if let crop: String = proxy.value(atY: location.y) {
+                                                        hoveredCrop = crop
+                                                    } else {
+                                                        hoveredCrop = nil
+                                                    }
+                                                case .ended:
+                                                    hoveredCrop = nil
+                                                }
+                                            }
                                     }
                                 }
                                 .chartXAxis(.hidden)
