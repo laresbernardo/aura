@@ -10,6 +10,7 @@ struct MainView: View {
         case habits = "Listening Habits"
         case artists = "Artist Hall"
         case persona = "Aura Profile"
+        case temporal = "Sonic Rhythms"
         case timeMachine = "Time Machine"
     }
     
@@ -248,6 +249,8 @@ struct MainView: View {
                                 ArtistHallView(manager: manager)
                             case .persona:
                                 AuraProfileView(manager: manager)
+                            case .temporal:
+                                TemporalRhythmsView(manager: manager)
                             case .timeMachine:
                                 TimeMachineView(manager: manager)
                             }
@@ -268,6 +271,7 @@ struct MainView: View {
         case .habits: return "waveform.path.ecg.rectangle"
         case .artists: return "person.3.sequence.fill"
         case .persona: return "sparkles.rectangle.stack.fill"
+        case .temporal: return "clock.badge.checkmark"
         case .timeMachine: return "clock.arrow.2.circlepath"
         }
     }

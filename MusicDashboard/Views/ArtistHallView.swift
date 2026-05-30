@@ -3,6 +3,7 @@ import Charts
 
 struct ArtistHallView: View {
     @ObservedObject var manager: MusicLibraryManager
+    @State private var showAllArtists = false
     
     var body: some View {
         ScrollView(.vertical, showsIndicators: false) {
@@ -32,8 +33,9 @@ struct ArtistHallView: View {
                     }
                 } else {
                     let top5 = Array(manager.topArtistsDetailed.prefix(5))
+                    let displayedArtists = showAllArtists ? Array(manager.topArtistsDetailed.prefix(12)) : Array(manager.topArtistsDetailed.prefix(4))
                     
-                    // MARK: - Playback Volume Chart
+                    // MARK: - Playback Volume Comparison Chart
                     GlassCard {
                         VStack(alignment: .leading, spacing: 18) {
                             VStack(alignment: .leading, spacing: 4) {
@@ -99,9 +101,42 @@ struct ArtistHallView: View {
                         .padding(.top, 8)
                     
                     LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 20) {
-                        ForEach(top5) { stat in
+                        ForEach(displayedArtists) { stat in
                             ArtistProfileCard(stat: stat)
                         }
+                    }
+                    
+                    if manager.topArtistsDetailed.count > 4 {
+                        HStack {
+                            Spacer()
+                            Button(action: {
+                                withAnimation(.spring(response: 0.45, dampingFraction: 0.8)) {
+                                    showAllArtists.toggle()
+                                }
+                            }) {
+                                HStack(spacing: 8) {
+                                    Text(showAllArtists ? "Show Less" : "Show More Artists")
+                                        .font(.subheadline)
+                                        .fontWeight(.semibold)
+                                    Image(systemName: showAllArtists ? "chevron.up" : "chevron.down")
+                                        .font(.caption2)
+                                }
+                                .foregroundColor(.purple)
+                                .padding(.horizontal, 20)
+                                .padding(.vertical, 10)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 12)
+                                        .fill(Color.white.opacity(0.06))
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 12)
+                                        .stroke(Color.white.opacity(0.06), lineWidth: 1)
+                                )
+                            }
+                            .buttonStyle(.plain)
+                            Spacer()
+                        }
+                        .padding(.top, 10)
                     }
                 }
             }

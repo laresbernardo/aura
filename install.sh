@@ -62,6 +62,7 @@ swiftc -O -sdk "$SDK_PATH" \
     "$SOURCE_DIR/MusicDashboard/Views/TimeMachineView.swift" \
     "$SOURCE_DIR/MusicDashboard/Views/ArtistHallView.swift" \
     "$SOURCE_DIR/MusicDashboard/Views/AuraProfileView.swift" \
+    "$SOURCE_DIR/MusicDashboard/Views/TemporalRhythmsView.swift" \
     "$SOURCE_DIR/MusicDashboard/MusicDashboardApp.swift"
 
 echo -e "${GREEN}✓ Compilation successful.${NC}"

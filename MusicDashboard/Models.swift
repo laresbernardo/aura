@@ -108,3 +108,22 @@ struct PersonaProfile: Hashable {
     let loyaltyScore: Double // 0-100 (plays vs skips ratio)
     let gradientColors: [Color] // Colors for dynamic glowing persona card
 }
+
+struct TemporalStat: Identifiable, Hashable {
+    let id: UUID
+    let period: String // "Morning Birds", "Afternoon Focus", "Sunset Chill", "Midnight Owls"
+    let count: Int
+    let description: String
+    let icon: String
+    let gradientColors: [Color]
+    
+    init(id: UUID = UUID(), period: String, count: Int, description: String, icon: String, gradientColors: [Color]) {
+        self.id = id
+        self.period = period
+        self.count = count
+        self.description = description
+        self.icon = icon
+        self.gradientColors = gradientColors
+    }
+}
+

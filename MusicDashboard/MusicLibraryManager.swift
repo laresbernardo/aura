@@ -147,6 +147,16 @@ class MusicLibraryManager: ObservableObject {
             }
             
             var tracks = library.tracks;
+            
+            // JXA OPTIMIZATION: Retrieve only interacted/played tracks to bypass IPC overhead on large libraries.
+            // Falls back to querying all tracks if no tracks are played.
+            try {
+                var interacted = library.tracks.whose({ playedCount: { '>', 0 } });
+                if (interacted && interacted.length > 0) {
+                    tracks = interacted;
+                }
+            } catch(e) {}
+            
             var count = 0;
             try {
                 count = tracks.length;
@@ -186,6 +196,20 @@ class MusicLibraryManager: ObservableObject {
                 var dAdded = datesAdded[i];
                 var dPlayed = lastsPlayed[i];
                 
+                var tAdded = null;
+                if (dAdded) {
+                    try {
+                        tAdded = dAdded.getTime ? dAdded.getTime() / 1000 : new Date(dAdded).getTime() / 1000;
+                    } catch(e) {}
+                }
+                
+                var tPlayed = null;
+                if (dPlayed) {
+                    try {
+                        tPlayed = dPlayed.getTime ? dPlayed.getTime() / 1000 : new Date(dPlayed).getTime() / 1000;
+                    } catch(e) {}
+                }
+                
                 list.push({
                     "name": names[i] || "Unknown Track",
                     "artist": artists[i] || "Unknown Artist",
@@ -194,8 +218,8 @@ class MusicLibraryManager: ObservableObject {
                     "playCount": playCounts[i] || 0,
                     "skipCount": skipCounts[i] || 0,
                     "rating": ratings[i] || 0,
-                    "dateAdded": dAdded ? new Date(dAdded).getTime() / 1000 : null,
-                    "lastPlayed": dPlayed ? new Date(dPlayed).getTime() / 1000 : null,
+                    "dateAdded": tAdded,
+                    "lastPlayed": tPlayed,
                     "year": years[i] || 0
                 });
             }
@@ -296,7 +320,6 @@ class MusicLibraryManager: ObservableObject {
         openPanel.title = "Select Exported Music Library XML"
         openPanel.message = "Choose the 'Library.xml' or 'Music Library.xml' file exported from Music.app"
         openPanel.prompt = "Select XML"
-        openPanel.showsResizeIndicator = true
         openPanel.showsHiddenFiles = false
         openPanel.canChooseDirectories = false
         openPanel.canChooseFiles = true
@@ -700,6 +723,80 @@ class MusicLibraryManager: ObservableObject {
         return candidates.sorted(by: { ($0.lastPlayedDate ?? Date.distantPast) < ($1.lastPlayedDate ?? Date.distantPast) })
     }
     
+    // Love-Hate Paradox (Highly rated/played tracks that you skip frequently - nostalgic burnout)
+    var loveHateParadox: [Track] {
+        return tracks.filter { track in
+            let isHighlyInteracted = track.rating >= 80 || track.playCount >= 20
+            let isSkippedFrequently = track.skipCount >= 4
+            return isHighlyInteracted && isSkippedFrequently
+        }.sorted(by: { $0.skipCount > $1.skipCount })
+    }
+    
+    // Count tracks played by hour of day (0-23)
+    var listeningHourCounts: [Int: Int] {
+        var counts: [Int: Int] = [:]
+        let cal = Calendar.current
+        for track in tracks {
+            guard let lastPlayed = track.lastPlayedDate else { continue }
+            let hour = cal.component(.hour, from: lastPlayed)
+            counts[hour, default: 0] += 1
+        }
+        return counts
+    }
+    
+    // Categorize listening periods
+    var temporalStats: [TemporalStat] {
+        let counts = listeningHourCounts
+        var morning = 0
+        var afternoon = 0
+        var sunset = 0
+        var midnight = 0
+        
+        for (hour, count) in counts {
+            if hour >= 6 && hour < 12 {
+                morning += count
+            } else if hour >= 12 && hour < 18 {
+                afternoon += count
+            } else if hour >= 18 && hour < 24 {
+                sunset += count
+            } else {
+                midnight += count
+            }
+        }
+        
+        return [
+            TemporalStat(
+                period: "Morning Birds",
+                count: morning,
+                description: "6 AM – 12 PM • Fresh energy & morning caffeine soundtracks.",
+                icon: "sunrise.fill",
+                gradientColors: [.orange, .yellow]
+            ),
+            TemporalStat(
+                period: "Afternoon Focus",
+                count: afternoon,
+                description: "12 PM – 6 PM • Power hours & workday focus soundscapes.",
+                icon: "sun.max.fill",
+                gradientColors: [.emerald, .teal]
+            ),
+            TemporalStat(
+                period: "Sunset Chill",
+                count: sunset,
+                description: "6 PM – 12 AM • Unwinding after hours, evening dinners, & relaxation.",
+                icon: "sunset.fill",
+                gradientColors: [.purple, .pink]
+            ),
+            TemporalStat(
+                period: "Midnight Owls",
+                count: midnight,
+                description: "12 AM – 6 AM • Late night focus, deep beats, & ambient dreaming.",
+                icon: "moon.stars.fill",
+                gradientColors: [.indigo, .purple]
+            )
+        ]
+    }
+    
+    
     // Timeline of Tracks Added (by month/year)
     var tracksAddedTimeline: [TimelineStat] {
         let cal = Calendar.current
@@ -776,8 +873,7 @@ class MusicLibraryManager: ObservableObject {
     
     var appVersionString: String {
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.0"
-        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"
-        return "v\(version) (Build \(build))"
+        return "v\(version)"
     }
     
     var topArtistsDetailed: [ArtistStat] {

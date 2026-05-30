@@ -218,6 +218,68 @@ struct ListeningHabitsView: View {
                     .padding(24)
                 }
                 .glassCardHoverEffect()
+                
+                // MARK: - Love-Hate Paradox (Nostalgic Burnout)
+                GlassCard {
+                    VStack(alignment: .leading, spacing: 16) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                Image(systemName: "heart.slash.fill")
+                                    .foregroundColor(.red)
+                                Text("The Love-Hate Paradox")
+                                    .font(.headline)
+                                    .foregroundColor(.white)
+                            }
+                            Text("Tracks you love (high rating or plays) but skip frequently. Is it nostalgic burnout?")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        
+                        if manager.loveHateParadox.isEmpty {
+                            HStack {
+                                Spacer()
+                                Text("No love-hate conflicts. Your favorite tracks remain unskipped!")
+                                    .font(.subheadline)
+                                    .foregroundColor(.secondary)
+                                    .padding(.vertical, 24)
+                                Spacer()
+                            }
+                        } else {
+                            VStack(spacing: 0) {
+                                HStack {
+                                    Text("Track Info")
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                    Text("Genre")
+                                        .frame(width: 100, alignment: .leading)
+                                    Text("Rating")
+                                        .frame(width: 80, alignment: .center)
+                                    Text("Skips")
+                                        .frame(width: 130, alignment: .trailing)
+                                }
+                                .font(.caption)
+                                .fontWeight(.bold)
+                                .foregroundColor(.secondary)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 8)
+                                .background(Color.white.opacity(0.02))
+                                
+                                Divider().background(Color.white.opacity(0.08))
+                                
+                                ScrollView(.vertical, showsIndicators: false) {
+                                    VStack(spacing: 0) {
+                                        ForEach(manager.loveHateParadox.prefix(15)) { track in
+                                            LoveHateRowView(track: track)
+                                            Divider().background(Color.white.opacity(0.04))
+                                        }
+                                    }
+                                }
+                                .frame(height: 260)
+                            }
+                        }
+                    }
+                    .padding(24)
+                }
+                .glassCardHoverEffect()
             }
             .padding(4)
         }
@@ -418,5 +480,52 @@ struct TableRowView: View {
         formatter.dateStyle = .short
         formatter.timeStyle = .none
         return formatter.string(from: lastPlayedDate)
+    }
+}
+
+struct LoveHateRowView: View {
+    let track: Track
+    
+    var body: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(track.name)
+                    .font(.caption)
+                    .fontWeight(.bold)
+                    .foregroundColor(.white)
+                Text(track.artist)
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            
+            Text(track.genre)
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .frame(width: 100, alignment: .leading)
+            
+            HStack(spacing: 4) {
+                StarsView(stars: track.ratingStars)
+                if track.ratingStars == 0 {
+                    Text("Plays: \(track.playCount)")
+                        .font(.system(size: 9))
+                        .foregroundColor(.secondary)
+                }
+            }
+            .frame(width: 80, alignment: .center)
+            
+            HStack(spacing: 4) {
+                Image(systemName: "arrow.forward.to.line.fill")
+                    .foregroundColor(.red)
+                    .font(.system(size: 8))
+                Text("\(track.skipCount) skips")
+                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .foregroundColor(.red)
+            }
+            .frame(width: 130, alignment: .trailing)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .contentShape(Rectangle())
     }
 }
