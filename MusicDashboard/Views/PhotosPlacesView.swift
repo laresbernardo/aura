@@ -96,8 +96,8 @@ struct PhotosPlacesView: View {
                     // KPI 1: Total Countries
                     PhotosMetricCard(
                         title: "Countries Visited",
-                        value: "\(manager.totalCountriesVisited) Countries",
-                        subtitle: "Across \(manager.totalCitiesVisited) distinct cities",
+                        value: "\(manager.totalCountriesVisited.formatted()) Countries",
+                        subtitle: "Across \(manager.totalCitiesVisited.formatted()) distinct cities",
                         icon: "globe.americas.fill",
                         gradient: LinearGradient(colors: [.cyan, .blue], startPoint: .topLeading, endPoint: .bottomTrailing)
                     )
@@ -202,7 +202,7 @@ struct PhotosPlacesView: View {
                                                 
                                                 Spacer()
                                                 
-                                                Text("\(stat.count) shots")
+                                                Text("\(stat.count.formatted()) shots")
                                                     .font(.system(.caption, design: .monospaced))
                                                     .fontWeight(.semibold)
                                                     .foregroundColor(.emerald)
@@ -253,7 +253,7 @@ struct PhotosPlacesView: View {
                                     .cornerRadius(4)
                                     .annotation(position: .top) {
                                         if hoveredBucketLabel == bucket.label && bucket.count > 0 {
-                                            Text("\(bucket.count)")
+                                            Text(bucket.count.formatted())
                                                 .font(.system(size: 10, weight: .bold, design: .rounded))
                                                 .foregroundColor(.white)
                                                 .padding(.horizontal, 6)

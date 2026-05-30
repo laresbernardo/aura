@@ -49,11 +49,14 @@ class MusicLibraryManager: ObservableObject {
     
     var availableYears: [Int] {
         let cal = Calendar.current
+        let currentYear = cal.component(.year, from: Date())
         let years = allTracks.compactMap { track -> Int? in
             guard let addedDate = track.addedDate else { return nil }
             return cal.component(.year, from: addedDate)
         }
-        return Array(Set(years)).sorted(by: >)
+        var uniqueYears = Set(years)
+        uniqueYears.insert(currentYear)
+        return Array(uniqueYears).sorted(by: >)
     }
     
     func applyFilter() {
@@ -162,11 +165,13 @@ class MusicLibraryManager: ObservableObject {
     // MARK: - Direct Apple Music App Connection (JXA Engine)
     
     func fetchDirectLibrary(forceLaunch: Bool = false) async {
+        print("[AURA] fetchDirectLibrary called. forceLaunch = \(forceLaunch)")
         self.isLoading = true
         self.syncError = nil
         
         if !forceLaunch {
             let isRunning = await checkIsMusicAppRunning()
+            print("[AURA] checkIsMusicAppRunning result: \(isRunning)")
             if !isRunning {
                 self.musicAppRunningState = .notRunning
                 self.isLoading = false
@@ -279,15 +284,19 @@ class MusicLibraryManager: ObservableObject {
         })();
         """#
         
+        print("[AURA] Executing runOsaScript for main direct sync...")
         let result = await runOsaScript(jxaScript)
+        print("[AURA] runOsaScript main sync completed.")
         
         switch result {
         case .success(let jsonString):
+            print("[AURA] JXA Success. jsonString length = \(jsonString.count) bytes")
             do {
                 let data = jsonString.data(using: .utf8) ?? Data()
                 
                 if let errorDict = try? JSONSerialization.jsonObject(with: data) as? [String: String],
                    let errorMessage = errorDict["error"] {
+                    print("[AURA] JXA returned error payload: \(errorMessage)")
                     self.syncError = errorMessage
                     if errorMessage.contains("automation") || errorMessage.contains("Permissions") {
                         self.musicAppRunningState = .permissionDenied
@@ -300,6 +309,7 @@ class MusicLibraryManager: ObservableObject {
                 
                 let decoder = JSONDecoder()
                 let fetchedTracks = try decoder.decode([Track].self, from: data)
+                print("[AURA] Decoded \(fetchedTracks.count) tracks successfully.")
                 
                 if fetchedTracks.isEmpty {
                     self.syncError = "Your macOS Music library appears to be empty."
@@ -311,9 +321,11 @@ class MusicLibraryManager: ObservableObject {
                     self.syncError = nil
                 }
             } catch {
+                print("[AURA] Decode/Parse error: \(error.localizedDescription)")
                 self.syncError = "Failed to parse Music library. Details: \(error.localizedDescription)"
             }
         case .failure(let error):
+            print("[AURA] JXA direct sync runOsaScript failed with error: \(error.localizedDescription)")
             self.syncError = error.localizedDescription
             if error.localizedDescription.contains("not allowed") || error.localizedDescription.contains("permission") {
                 self.musicAppRunningState = .permissionDenied
@@ -328,8 +340,11 @@ class MusicLibraryManager: ObservableObject {
         let result = await runOsaScript(checkScript)
         switch result {
         case .success(let val):
-            return val.trimmingCharacters(in: .whitespacesAndNewlines) == "true"
-        case .failure:
+            let trimmed = val.trimmingCharacters(in: .whitespacesAndNewlines)
+            print("[AURA] checkIsMusicAppRunning: success, value = '\(trimmed)'")
+            return trimmed == "true"
+        case .failure(let error):
+            print("[AURA] checkIsMusicAppRunning: failure, error = \(error.localizedDescription)")
             return false
         }
     }
@@ -347,19 +362,22 @@ class MusicLibraryManager: ObservableObject {
             
             do {
                 try process.run()
+                
+                // Read all data first to prevent process block/deadlock when buffer exceeds 64KB
+                let data = outputPipe.fileHandleForReading.readDataToEndOfFile()
+                let errData = errorPipe.fileHandleForReading.readDataToEndOfFile()
+                
                 process.waitUntilExit()
                 
                 let status = process.terminationStatus
                 if status == 0 {
-                    let data = outputPipe.fileHandleForReading.readDataToEndOfFile()
                     if let output = String(data: data, encoding: .utf8) {
                         return .success(output)
                     } else {
                         return .failure(NSError(domain: "OsaScriptError", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to read string output."]))
                     }
                 } else {
-                    let errData = errorPipe.fileHandleForReading.readDataToEndOfFile()
-                    let errString = String(data: errData, encoding: .utf8) ?? "Unknown AppleScript JXA error"
+                    let errString = String(data: errData, encoding: .utf8) ?? "Unknown JXA error"
                     return .failure(NSError(domain: "OsaScriptError", code: Int(status), userInfo: [NSLocalizedDescriptionKey: errString]))
                 }
             } catch {
@@ -378,7 +396,7 @@ class MusicLibraryManager: ObservableObject {
         (function() {
             var app = Application("Music");
             app.activate();
-            var matches = app.libraryPlaylists[0].tracks.whose({ name: "\(cleanName)", artist: "\(cleanArtist)" });
+            var matches = app.libraryPlaylists[0].tracks.whose({ name: "\(cleanName)" }).whose({ artist: "\(cleanArtist)" });
             if (matches.length > 0) {
                 matches[0].reveal();
                 matches[0].play();
@@ -461,7 +479,7 @@ class MusicLibraryManager: ObservableObject {
             for (var i = 0; i < tracksToFind.length; i++) {
                 var target = tracksToFind[i];
                 try {
-                    var matches = allTracks.whose({ name: target.name, artist: target.artist });
+                    var matches = allTracks.whose({ name: target.name }).whose({ artist: target.artist });
                     if (matches.length > 0) {
                         matches[0].duplicate({ to: newPlaylist });
                         count++;
@@ -591,21 +609,22 @@ class MusicLibraryManager: ObservableObject {
     // is no longer written next to the .musiclibrary bundle.  Instead we do a broader
     // multi-location search, including the Backups/ subfolder Music creates automatically.
     private nonisolated static func musicLibraryXMLURL() -> URL? {
-        // All filenames Music has ever used for the XML export
-        let candidateNames = [
-            "Music Library.xml",
-            "iTunes Library.xml",
-            "Library.xml",           // found in Backups/
-        ]
         let fm = FileManager.default
 
-        // Helper: return the first candidate XML that exists in `dir`
-        func first(in dir: URL) -> URL? {
-            for name in candidateNames {
-                let candidate = dir.appendingPathComponent(name)
-                if fm.fileExists(atPath: candidate.path) { return candidate }
+        // Helper: return the newest XML file in `dir` matching standard Music XML names (including dated backups)
+        func newestXML(in dir: URL) -> URL? {
+            guard let contents = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.contentModificationDateKey], options: .skipsHiddenFiles) else {
+                return nil
             }
-            return nil
+            let xmlFiles = contents.filter { url in
+                let name = url.lastPathComponent.lowercased()
+                return name.hasSuffix(".xml") && (name.contains("library") || name.contains("itunes"))
+            }
+            return xmlFiles.sorted { url1, url2 in
+                let date1 = (try? url1.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? Date.distantPast
+                let date2 = (try? url2.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? Date.distantPast
+                return date1 > date2
+            }.first
         }
 
         // 0. Check custom XML path persistently chosen by the user
@@ -629,25 +648,25 @@ class MusicLibraryManager: ObservableObject {
             let parentDir  = bundleURL.deletingLastPathComponent()   // .../iTunes/
 
             // Check next to the bundle
-            if let found = first(in: parentDir) { return found }
+            if let found = newestXML(in: parentDir) { return found }
 
             // Check in Backups/ subfolder (Music writes here automatically)
             let backupsDir = parentDir.appendingPathComponent("Backups")
-            if let found = first(in: backupsDir) { return found }
+            if let found = newestXML(in: backupsDir) { return found }
 
             // Also check one level up (edge case: library stored deeper)
             let grandparentDir = parentDir.deletingLastPathComponent()
-            if let found = first(in: grandparentDir) { return found }
+            if let found = newestXML(in: grandparentDir) { return found }
         }
 
         // 2. Fallback: standard ~/Music/Music/ location
         let defaultDir = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Music/Music")
-        if let found = first(in: defaultDir) { return found }
+        if let found = newestXML(in: defaultDir) { return found }
 
         // 3. Fallback: ~/Music/iTunes/ (older setups)
         let itunesDir = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Music/iTunes")
-        if let found = first(in: itunesDir) { return found }
-        if let found = first(in: itunesDir.appendingPathComponent("Backups")) { return found }
+        if let found = newestXML(in: itunesDir) { return found }
+        if let found = newestXML(in: itunesDir.appendingPathComponent("Backups")) { return found }
 
         // 4. Fallback: broader user directories (~/Downloads, ~/Documents, ~/Desktop)
         let homeURL = URL(fileURLWithPath: NSHomeDirectory())
@@ -657,7 +676,7 @@ class MusicLibraryManager: ObservableObject {
             homeURL.appendingPathComponent("Desktop")
         ]
         for dir in searchDirs {
-            if let found = first(in: dir) { return found }
+            if let found = newestXML(in: dir) { return found }
         }
 
         return nil
@@ -830,6 +849,28 @@ class MusicLibraryManager: ObservableObject {
             artistPlays[track.artist, default: 0] += track.playCount
         }
         return artistPlays.max(by: { $0.value < $1.value })?.key ?? "Unknown"
+    }
+    
+    var topArtistListeningTimeFormatted: String {
+        guard !tracks.isEmpty else { return "0m" }
+        var artistPlays: [String: Int] = [:]
+        for track in tracks {
+            artistPlays[track.artist, default: 0] += track.playCount
+        }
+        guard let top = artistPlays.max(by: { $0.value < $1.value }) else { return "0m" }
+        
+        let seconds = Double(top.value) * 210.0 // 3.5 minutes average track length
+        let days = Int(seconds / 86400)
+        let hours = Int((seconds.truncatingRemainder(dividingBy: 86400)) / 3600)
+        let minutes = Int((seconds.truncatingRemainder(dividingBy: 3600)) / 60)
+        
+        if days > 0 {
+            return "\(days)d \(hours)h \(minutes)m"
+        } else if hours > 0 {
+            return "\(hours)h \(minutes)m"
+        } else {
+            return "\(minutes)m"
+        }
     }
     
     var topGenre: String {

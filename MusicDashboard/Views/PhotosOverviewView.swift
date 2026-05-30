@@ -81,8 +81,8 @@ struct PhotosOverviewView: View {
                     // KPI 1: Total Assets
                     PhotosMetricCard(
                         title: "Total Assets",
-                        value: "\(manager.totalAssetsCount)",
-                        subtitle: "\(manager.photosCount) Photos • \(manager.videosCount) Videos",
+                        value: manager.totalAssetsCount.formatted(),
+                        subtitle: "\(manager.photosCount.formatted()) Photos • \(manager.videosCount.formatted()) Videos",
                         icon: "photo.stack.fill",
                         gradient: LinearGradient(colors: [.emerald, .teal], startPoint: .topLeading, endPoint: .bottomTrailing)
                     )
@@ -91,7 +91,7 @@ struct PhotosOverviewView: View {
                     PhotosMetricCard(
                         title: "Curated Favorites",
                         value: String(format: "%.1f%%", manager.favoritePercentage),
-                        subtitle: "\(manager.favoritesCount) Starred captures",
+                        subtitle: "\(manager.favoritesCount.formatted()) Starred captures",
                         icon: "heart.fill",
                         gradient: LinearGradient(colors: [.pink, .red], startPoint: .topLeading, endPoint: .bottomTrailing)
                     )
@@ -108,8 +108,8 @@ struct PhotosOverviewView: View {
                     // KPI 4: Destinations Visited
                     PhotosMetricCard(
                         title: "Places Cataloged",
-                        value: "\(manager.totalCitiesVisited) Cities",
-                        subtitle: "Across \(manager.totalCountriesVisited) Countries",
+                        value: "\(manager.totalCitiesVisited.formatted()) Cities",
+                        subtitle: "Across \(manager.totalCountriesVisited.formatted()) Countries",
                         icon: "globe.americas.fill",
                         gradient: LinearGradient(colors: [.cyan, .blue], startPoint: .topLeading, endPoint: .bottomTrailing)
                     )
@@ -149,7 +149,7 @@ struct PhotosOverviewView: View {
                                     .cornerRadius(6)
                                     .annotation(position: .trailing) {
                                         if hoveredFormat == stat.genre {
-                                            Text("\(stat.count) files")
+                                            Text("\(stat.count.formatted()) files")
                                                 .font(.system(.caption2, design: .monospaced))
                                                 .fontWeight(.bold)
                                                 .foregroundColor(.white)
@@ -207,7 +207,7 @@ struct PhotosOverviewView: View {
                                             .font(.caption2)
                                             .foregroundColor(.secondary)
                                         Spacer()
-                                        Text("\(stat.count) files")
+                                        Text("\(stat.count.formatted()) files")
                                             .font(.system(.caption2, design: .monospaced))
                                             .foregroundColor(.white.opacity(0.7))
                                     }
@@ -252,7 +252,7 @@ struct PhotosOverviewView: View {
                                     .cornerRadius(3)
                                     .annotation(position: .top) {
                                         if hoveredMonth == stat.monthYearString && stat.count > 0 {
-                                            Text("\(stat.count)")
+                                            Text(stat.count.formatted())
                                                 .font(.system(size: 10, weight: .bold, design: .rounded))
                                                 .foregroundColor(.white)
                                                 .padding(.horizontal, 6)

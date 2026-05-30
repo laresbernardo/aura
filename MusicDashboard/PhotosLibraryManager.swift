@@ -201,11 +201,9 @@ class PhotosLibraryManager: ObservableObject {
     
     nonisolated private func cleanCameraModel(kvcModel: String?, filename: String, isLivePhoto: Bool, width: Int, height: Int) -> String {
         if let kvc = kvcModel?.trimmingCharacters(in: .whitespacesAndNewlines), !kvc.isEmpty {
-            if kvc.localizedCaseInsensitiveContains("iPhone") {
-                return "iPhone"
-            }
-            if kvc.localizedCaseInsensitiveContains("GoPro") || kvc.localizedCaseInsensitiveContains("HERO") {
-                return "GoPro HERO"
+            // Keep the specific iPhone/GoPro versions if provided in EXIF metadata
+            if (kvc.localizedCaseInsensitiveContains("HERO") || kvc.localizedCaseInsensitiveContains("GoPro")) && !kvc.localizedCaseInsensitiveContains("GoPro") {
+                return "GoPro \(kvc)"
             }
             return kvc
         }
@@ -246,10 +244,13 @@ class PhotosLibraryManager: ObservableObject {
     
     var availableYears: [Int] {
         let cal = Calendar.current
+        let currentYear = cal.component(.year, from: Date())
         let years = allPhotos.map { item -> Int in
             cal.component(.year, from: item.capturedDate)
         }
-        return Array(Set(years)).sorted(by: >)
+        var uniqueYears = Set(years)
+        uniqueYears.insert(currentYear)
+        return Array(uniqueYears).sorted(by: >)
     }
     
     func applyFilter() {
@@ -476,18 +477,21 @@ class PhotosLibraryManager: ObservableObject {
             
             do {
                 try process.run()
+                
+                // Read all data first to prevent process block/deadlock when buffer exceeds 64KB
+                let data = outputPipe.fileHandleForReading.readDataToEndOfFile()
+                let errData = errorPipe.fileHandleForReading.readDataToEndOfFile()
+                
                 process.waitUntilExit()
                 
                 let status = process.terminationStatus
                 if status == 0 {
-                    let data = outputPipe.fileHandleForReading.readDataToEndOfFile()
                     if let output = String(data: data, encoding: .utf8) {
                         return .success(output)
                     } else {
                         return .failure(NSError(domain: "OsaScriptError", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to read string output."]))
                     }
                 } else {
-                    let errData = errorPipe.fileHandleForReading.readDataToEndOfFile()
                     let errString = String(data: errData, encoding: .utf8) ?? "Unknown JXA error"
                     return .failure(NSError(domain: "OsaScriptError", code: Int(status), userInfo: [NSLocalizedDescriptionKey: errString]))
                 }

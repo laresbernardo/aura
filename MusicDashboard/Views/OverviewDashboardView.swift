@@ -25,7 +25,7 @@ struct OverviewDashboardView: View {
                     // Metric 1: Total Tracks
                     MetricCard(
                         title: "Total Tracks",
-                        value: "\(manager.totalTracks)",
+                        value: manager.totalTracks.formatted(),
                         subtitle: "Items in Library",
                         icon: "music.note.list",
                         gradient: LinearGradient(colors: [Color.cyan, Color.blue], startPoint: .topLeading, endPoint: .bottomTrailing)
@@ -44,7 +44,7 @@ struct OverviewDashboardView: View {
                     MetricCard(
                         title: "Top Artist",
                         value: manager.topArtist,
-                        subtitle: "By cumulative plays",
+                        subtitle: "\(manager.topArtistListeningTimeFormatted) listened",
                         icon: "person.wave.2.fill",
                         gradient: LinearGradient(colors: [Color.orange, Color.red], startPoint: .topLeading, endPoint: .bottomTrailing),
                         action: {
@@ -83,7 +83,7 @@ struct OverviewDashboardView: View {
                             }
                             Spacer()
                             
-                            Text("\(manager.genreDistribution.count) Genres")
+                            Text("\(manager.genreDistribution.count.formatted()) Genres")
                                 .font(.system(.caption, design: .monospaced))
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 4)
@@ -117,7 +117,7 @@ struct OverviewDashboardView: View {
                                     )
                                     .cornerRadius(5)
                                     .annotation(position: .trailing) {
-                                        Text("\(stat.count)")
+                                        Text(stat.count.formatted())
                                             .font(.system(.caption2, design: .monospaced))
                                             .fontWeight(.semibold)
                                             .foregroundColor(.white.opacity(0.9))

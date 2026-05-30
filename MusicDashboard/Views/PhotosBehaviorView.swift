@@ -28,7 +28,7 @@ struct PhotosBehaviorView: View {
                     // KPI 1: Golden Hour Focus
                     PhotosMetricCard(
                         title: "Golden Hour Snaps",
-                        value: "\(goldenHourCount) Captures",
+                        value: "\(goldenHourCount.formatted()) Captures",
                         subtitle: String(format: "%.1f%% of library taken at sunset", goldenHourPercentage),
                         icon: "sunset.fill",
                         gradient: LinearGradient(colors: [.orange, .pink], startPoint: .topLeading, endPoint: .bottomTrailing)
@@ -91,7 +91,7 @@ struct PhotosBehaviorView: View {
                                     .cornerRadius(4)
                                     .annotation(position: .top) {
                                         if hoveredHour == hour && count > 0 {
-                                            Text("\(count)")
+                                            Text(count.formatted())
                                                 .font(.system(size: 10, weight: .bold, design: .rounded))
                                                 .foregroundColor(.white)
                                                 .padding(.horizontal, 6)
@@ -180,7 +180,7 @@ struct PhotosBehaviorView: View {
                                     .cornerRadius(4)
                                     .annotation(position: .trailing) {
                                         if hoveredCamera == stat.camera {
-                                            Text("\(stat.count) photos")
+                                            Text("\(stat.count.formatted()) photos")
                                                 .font(.system(.caption2, design: .monospaced))
                                                 .fontWeight(.bold)
                                                 .foregroundColor(.white)
@@ -189,7 +189,7 @@ struct PhotosBehaviorView: View {
                                                 .background(Color.cyan.opacity(0.85))
                                                 .cornerRadius(4)
                                         } else {
-                                            Text("\(stat.count)")
+                                            Text(stat.count.formatted())
                                                 .font(.system(.caption2, design: .monospaced))
                                                 .foregroundColor(.white.opacity(0.8))
                                         }
@@ -262,7 +262,7 @@ struct PhotosBehaviorView: View {
                                     .cornerRadius(4)
                                     .annotation(position: .trailing) {
                                         if hoveredCrop == stat.category {
-                                            Text("\(stat.count) photos")
+                                            Text("\(stat.count.formatted()) photos")
                                                 .font(.system(.caption2, design: .monospaced))
                                                 .fontWeight(.bold)
                                                 .foregroundColor(.white)

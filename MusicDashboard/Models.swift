@@ -105,6 +105,21 @@ struct ArtistStat: Identifiable, Hashable {
     let averagePlaysPerTrack: Double
     let totalSkips: Int
     let engagementScore: Double // (plays / (plays + skips)) * 100
+    
+    var totalListeningTimeFormatted: String {
+        let seconds = Double(totalPlays) * 210.0 // 3.5 minutes average track length
+        let days = Int(seconds / 86400)
+        let hours = Int((seconds.truncatingRemainder(dividingBy: 86400)) / 3600)
+        let minutes = Int((seconds.truncatingRemainder(dividingBy: 3600)) / 60)
+        
+        if days > 0 {
+            return "\(days)d \(hours)h \(minutes)m"
+        } else if hours > 0 {
+            return "\(hours)h \(minutes)m"
+        } else {
+            return "\(minutes)m"
+        }
+    }
 }
 
 struct PersonaProfile: Hashable {

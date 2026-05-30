@@ -136,8 +136,8 @@ struct ListeningHabitsView: View {
                                                 .help("Click to filter by \(selected.artist) in macOS Music")
                                             
                                             HStack(spacing: 12) {
-                                                Text("Plays: \(selected.playCount)")
-                                                Text("Skips: \(selected.skipCount)")
+                                                Text("Plays: \(selected.playCount.formatted())")
+                                                Text("Skips: \(selected.skipCount.formatted())")
                                             }
                                             .font(.system(size: 10, design: .monospaced))
                                             .foregroundColor(.white.opacity(0.8))
@@ -596,7 +596,7 @@ struct LoveHateRowView: View {
             HStack(spacing: 4) {
                 StarsView(stars: track.ratingStars)
                 if track.ratingStars == 0 {
-                    Text("Plays: \(track.playCount)")
+                    Text("Plays: \(track.playCount.formatted())")
                         .font(.system(size: 9))
                         .foregroundColor(.secondary)
                 }
@@ -607,7 +607,7 @@ struct LoveHateRowView: View {
                 Image(systemName: "arrow.forward.to.line.fill")
                     .foregroundColor(.red)
                     .font(.system(size: 8))
-                Text("\(track.skipCount) skips")
+                Text("\(track.skipCount.formatted()) skips")
                     .font(.system(size: 10, weight: .bold, design: .monospaced))
                     .foregroundColor(.red)
             }

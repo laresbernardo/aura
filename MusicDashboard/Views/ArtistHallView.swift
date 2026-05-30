@@ -65,7 +65,7 @@ struct ArtistHallView: View {
                                 )
                                 .cornerRadius(5)
                                 .annotation(position: .trailing) {
-                                    Text("\(stat.totalPlays) plays")
+                                    Text("\(stat.totalPlays.formatted()) plays")
                                         .font(.system(.caption2, design: .monospaced))
                                         .fontWeight(.semibold)
                                         .foregroundColor(.white.opacity(0.85))
@@ -162,7 +162,7 @@ struct ArtistProfileCard: View {
                             .foregroundColor(.white)
                             .lineLimit(1)
                         
-                        Text("\(stat.trackCount) tracks in library")
+                        Text("\(stat.trackCount.formatted()) tracks in library")
                             .font(.caption2)
                             .foregroundColor(.secondary)
                     }
@@ -183,11 +183,22 @@ struct ArtistProfileCard: View {
                 // Stat Rows
                 VStack(spacing: 12) {
                     HStack {
+                        Text("Time Listened")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Spacer()
+                        Text(stat.totalListeningTimeFormatted)
+                            .font(.system(.caption, design: .monospaced))
+                            .fontWeight(.bold)
+                            .foregroundColor(.white)
+                    }
+                    
+                    HStack {
                         Text("Total Plays")
                             .font(.caption)
                             .foregroundColor(.secondary)
                         Spacer()
-                        Text("\(stat.totalPlays)")
+                        Text(stat.totalPlays.formatted())
                             .font(.system(.caption, design: .monospaced))
                             .fontWeight(.bold)
                             .foregroundColor(.white)
@@ -208,7 +219,7 @@ struct ArtistProfileCard: View {
                             .font(.caption)
                             .foregroundColor(.secondary)
                         Spacer()
-                        Text("\(stat.totalSkips)")
+                        Text(stat.totalSkips.formatted())
                             .font(.system(.caption, design: .monospaced))
                             .foregroundColor(.secondary)
                     }
