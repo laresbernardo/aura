@@ -56,46 +56,30 @@ class MusicLibraryManager: ObservableObject {
             self.tracks = allTracks
         case .currentYear:
             self.tracks = allTracks.filter { track in
-                if let lastPlayed = track.lastPlayedDate {
-                    return cal.component(.year, from: lastPlayed) == currentYearVal
-                }
-                if let added = track.addedDate {
-                    return cal.component(.year, from: added) == currentYearVal
-                }
-                return false
+                let lastPlayedYear = track.lastPlayedDate.map { cal.component(.year, from: $0) }
+                let addedYear = track.addedDate.map { cal.component(.year, from: $0) }
+                return lastPlayedYear == currentYearVal || addedYear == currentYearVal
             }
         case .previousYear:
             self.tracks = allTracks.filter { track in
-                if let lastPlayed = track.lastPlayedDate {
-                    return cal.component(.year, from: lastPlayed) == (currentYearVal - 1)
-                }
-                if let added = track.addedDate {
-                    return cal.component(.year, from: added) == (currentYearVal - 1)
-                }
-                return false
+                let lastPlayedYear = track.lastPlayedDate.map { cal.component(.year, from: $0) }
+                let addedYear = track.addedDate.map { cal.component(.year, from: $0) }
+                return lastPlayedYear == (currentYearVal - 1) || addedYear == (currentYearVal - 1)
             }
         case .twoYearsAgo:
             self.tracks = allTracks.filter { track in
-                if let lastPlayed = track.lastPlayedDate {
-                    return cal.component(.year, from: lastPlayed) == (currentYearVal - 2)
-                }
-                if let added = track.addedDate {
-                    return cal.component(.year, from: added) == (currentYearVal - 2)
-                }
-                return false
+                let lastPlayedYear = track.lastPlayedDate.map { cal.component(.year, from: $0) }
+                let addedYear = track.addedDate.map { cal.component(.year, from: $0) }
+                return lastPlayedYear == (currentYearVal - 2) || addedYear == (currentYearVal - 2)
             }
         case .customRange:
             let startOfDay = cal.startOfDay(for: customStartDate)
             let endOfDay = cal.date(bySettingHour: 23, minute: 59, second: 59, of: customEndDate) ?? customEndDate
             
             self.tracks = allTracks.filter { track in
-                if let lastPlayed = track.lastPlayedDate {
-                    return lastPlayed >= startOfDay && lastPlayed <= endOfDay
-                }
-                if let added = track.addedDate {
-                    return added >= startOfDay && added <= endOfDay
-                }
-                return false
+                let matchesPlayed = track.lastPlayedDate.map { $0 >= startOfDay && $0 <= endOfDay } ?? false
+                let matchesAdded = track.addedDate.map { $0 >= startOfDay && $0 <= endOfDay } ?? false
+                return matchesPlayed || matchesAdded
             }
         }
     }
@@ -271,14 +255,32 @@ class MusicLibraryManager: ObservableObject {
                 var tAdded = null;
                 if (dAdded) {
                     try {
-                        tAdded = dAdded.getTime ? dAdded.getTime() / 1000 : new Date(dAdded).getTime() / 1000;
+                        if (typeof dAdded === 'number') {
+                            tAdded = dAdded;
+                        } else if (dAdded.getTime) {
+                            tAdded = dAdded.getTime() / 1000;
+                        } else {
+                            var parsed = Date.parse(dAdded);
+                            if (!isNaN(parsed)) {
+                                tAdded = parsed / 1000;
+                            }
+                        }
                     } catch(e) {}
                 }
                 
                 var tPlayed = null;
                 if (dPlayed) {
                     try {
-                        tPlayed = dPlayed.getTime ? dPlayed.getTime() / 1000 : new Date(dPlayed).getTime() / 1000;
+                        if (typeof dPlayed === 'number') {
+                            tPlayed = dPlayed;
+                        } else if (dPlayed.getTime) {
+                            tPlayed = dPlayed.getTime() / 1000;
+                        } else {
+                            var parsed = Date.parse(dPlayed);
+                            if (!isNaN(parsed)) {
+                                tPlayed = parsed / 1000;
+                            }
+                        }
                     } catch(e) {}
                 }
                 

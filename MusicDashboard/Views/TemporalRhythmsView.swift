@@ -19,11 +19,11 @@ struct TemporalRhythmsView: View {
                         .foregroundColor(.secondary)
                 }
                 
-                if manager.listeningHourCounts.isEmpty {
+                if manager.tracks.isEmpty {
                     GlassCard {
                         HStack {
                             Spacer()
-                            Text("Sync your library to see your Temporal Sonic Rhythms.")
+                            Text(manager.allTracks.isEmpty ? "Sync your library to see your Temporal Sonic Rhythms." : "No listening patterns found for the selected Time Range.")
                                 .foregroundColor(.secondary)
                                 .padding()
                             Spacer()

@@ -43,6 +43,7 @@ FINAL_DMG="$SOURCE_DIR/Aura.dmg"
 # 3. Clean up
 echo -e "${YELLOW}Cleaning previous build artifacts...${NC}"
 rm -rf "$BUILD_DIR" "$FINAL_DMG"
+sleep 1
 mkdir -p "$APP_BUNDLE/Contents/MacOS"
 mkdir -p "$APP_BUNDLE/Contents/Resources"
 mkdir -p "$DMG_STAGING"
@@ -55,6 +56,7 @@ swiftc -O -sdk "$SDK_PATH" \
     -o "$APP_BUNDLE/Contents/MacOS/Aura" \
     "$SOURCE_DIR/MusicDashboard/Models.swift" \
     "$SOURCE_DIR/MusicDashboard/MusicLibraryManager.swift" \
+    "$SOURCE_DIR/MusicDashboard/PhotosLibraryManager.swift" \
     "$SOURCE_DIR/MusicDashboard/GlassCard.swift" \
     "$SOURCE_DIR/MusicDashboard/Views/MainView.swift" \
     "$SOURCE_DIR/MusicDashboard/Views/OverviewDashboardView.swift" \
@@ -63,6 +65,10 @@ swiftc -O -sdk "$SDK_PATH" \
     "$SOURCE_DIR/MusicDashboard/Views/ArtistHallView.swift" \
     "$SOURCE_DIR/MusicDashboard/Views/AuraProfileView.swift" \
     "$SOURCE_DIR/MusicDashboard/Views/TemporalRhythmsView.swift" \
+    "$SOURCE_DIR/MusicDashboard/Views/PhotosOverviewView.swift" \
+    "$SOURCE_DIR/MusicDashboard/Views/PhotosBehaviorView.swift" \
+    "$SOURCE_DIR/MusicDashboard/Views/PhotosPlacesView.swift" \
+    "$SOURCE_DIR/MusicDashboard/Views/PhotosAuraView.swift" \
     "$SOURCE_DIR/MusicDashboard/MusicDashboardApp.swift"
 
 echo -e "${GREEN}✓ Compilation successful.${NC}"

@@ -91,10 +91,10 @@ struct OverviewDashboardView: View {
                                 .cornerRadius(6)
                         }
                         
-                        if manager.genreDistribution.isEmpty {
+                        if manager.tracks.isEmpty {
                             HStack {
                                 Spacer()
-                                Text("No genre data available. Sync your library.")
+                                Text(manager.allTracks.isEmpty ? "No genre data available. Sync your library." : "No tracks found for the selected Time Range.")
                                     .foregroundColor(.secondary)
                                     .padding()
                                 Spacer()

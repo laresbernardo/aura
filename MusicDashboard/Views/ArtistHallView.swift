@@ -20,11 +20,11 @@ struct ArtistHallView: View {
                         .foregroundColor(.secondary)
                 }
                 
-                if manager.topArtistsDetailed.isEmpty {
+                if manager.tracks.isEmpty {
                     GlassCard {
                         HStack {
                             Spacer()
-                            Text("Sync your library to see your Artist Hall of Fame.")
+                            Text(manager.allTracks.isEmpty ? "Sync your library to see your Artist Hall of Fame." : "No artists found for the selected Time Range.")
                                 .foregroundColor(.secondary)
                                 .padding()
                             Spacer()
