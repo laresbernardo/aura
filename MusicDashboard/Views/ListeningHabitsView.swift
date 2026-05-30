@@ -11,7 +11,7 @@ struct ListeningHabitsView: View {
                 // Header Section
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Listening Habits")
-                        .font(.system(.title1, design: .rounded))
+                        .font(.system(.title, design: .rounded))
                         .fontWeight(.bold)
                         .foregroundColor(.white)
                     
@@ -27,7 +27,7 @@ struct ListeningHabitsView: View {
                             Text("Anthems vs. Song Fatigue")
                                 .font(.headline)
                                 .foregroundColor(.white)
-                            Text("Hover or click points to identify your music behaviors")
+                            Text("Plots your top 150 most active tracks based on adaptive play and skip thresholds")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                         }
@@ -35,7 +35,7 @@ struct ListeningHabitsView: View {
                         HStack(spacing: 24) {
                             // The Scatter Plot
                             VStack {
-                                Chart(manager.tracks) { track in
+                                Chart(scatterPlotTracks) { track in
                                     PointMark(
                                         x: .value("Play Count", track.playCount),
                                         y: .value("Skip Count", track.skipCount)
@@ -91,9 +91,9 @@ struct ListeningHabitsView: View {
                                     .foregroundColor(.white)
                                 
                                 VStack(alignment: .leading, spacing: 10) {
-                                    LegendRow(color: .emerald, icon: "star.fill", label: "Unskippable Anthems", desc: "High Plays, Low Skips")
-                                    LegendRow(color: .orange, icon: "exclamationmark.triangle.fill", label: "Song Fatigue", desc: "High Plays, High Skips")
-                                    LegendRow(color: .red, icon: "gobackward", label: "Skipped/Disliked", desc: "Low Plays, High Skips")
+                                    LegendRow(color: .emerald, icon: "star.fill", label: "Unskippable Anthems", desc: "Plays ≥ \(dynamicThresholds.play), Skips < \(dynamicThresholds.skip)")
+                                    LegendRow(color: .orange, icon: "exclamationmark.triangle.fill", label: "Song Fatigue", desc: "Plays ≥ \(dynamicThresholds.play), Skips ≥ \(dynamicThresholds.skip)")
+                                    LegendRow(color: .red, icon: "gobackward", label: "Skipped/Disliked", desc: "Plays < \(dynamicThresholds.play), Skips ≥ \(dynamicThresholds.skip)")
                                     LegendRow(color: .blue, icon: "circle.fill", label: "Standard Rotation", desc: "Moderate Playback")
                                 }
                                 .padding(.bottom, 6)
@@ -225,24 +225,48 @@ struct ListeningHabitsView: View {
     
     // MARK: - Quadrant & Categorization Helpers
     
+    private var scatterPlotTracks: [Track] {
+        let active = manager.tracks.filter { $0.playCount > 0 || $0.skipCount > 0 }
+        return Array(active.sorted(by: { ($0.playCount + $0.skipCount) > ($1.playCount + $1.skipCount) }).prefix(150))
+    }
+    
+    private var dynamicThresholds: (play: Int, skip: Int) {
+        let plays = manager.tracks.map { $0.playCount }
+        let skips = manager.tracks.map { $0.skipCount }
+        let maxPlay = plays.max() ?? 100
+        let maxSkip = skips.max() ?? 20
+        
+        let sortedPlays = plays.sorted()
+        let percentilePlay = sortedPlays.isEmpty ? 10 : sortedPlays[Int(Double(sortedPlays.count) * 0.85)]
+        let playThreshold = max(10, min(percentilePlay, maxPlay / 3))
+        
+        let sortedSkips = skips.sorted()
+        let percentileSkip = sortedSkips.isEmpty ? 3 : sortedSkips[Int(Double(sortedSkips.count) * 0.85)]
+        let skipThreshold = max(3, min(percentileSkip, maxSkip / 3))
+        
+        return (playThreshold, skipThreshold)
+    }
+    
     private func habitColor(for track: Track) -> Color {
-        if track.playCount >= 100 && track.skipCount <= 10 {
+        let thresholds = dynamicThresholds
+        if track.playCount >= thresholds.play && track.skipCount < thresholds.skip {
             return .emerald // Unskippable Anthem
-        } else if track.playCount >= 100 && track.skipCount > 10 {
+        } else if track.playCount >= thresholds.play && track.skipCount >= thresholds.skip {
             return .orange // Song Fatigue
-        } else if track.playCount < 100 && track.skipCount > 15 {
+        } else if track.playCount < thresholds.play && track.skipCount >= thresholds.skip {
             return .red // Skipped / Disliked
         } else {
             return .blue // Standard Rotation
         }
     }
     
-    private func symbol(for track: Track) -> Symbol {
-        if track.playCount >= 100 && track.skipCount <= 10 {
+    private func symbol(for track: Track) -> BasicChartSymbolShape {
+        let thresholds = dynamicThresholds
+        if track.playCount >= thresholds.play && track.skipCount < thresholds.skip {
             return .square
-        } else if track.playCount >= 100 && track.skipCount > 10 {
+        } else if track.playCount >= thresholds.play && track.skipCount >= thresholds.skip {
             return .triangle
-        } else if track.playCount < 100 && track.skipCount > 15 {
+        } else if track.playCount < thresholds.play && track.skipCount >= thresholds.skip {
             return .diamond
         } else {
             return .circle
@@ -250,11 +274,12 @@ struct ListeningHabitsView: View {
     }
     
     private func behaviorCategory(for track: Track) -> String {
-        if track.playCount >= 100 && track.skipCount <= 10 {
+        let thresholds = dynamicThresholds
+        if track.playCount >= thresholds.play && track.skipCount < thresholds.skip {
             return "ANTHEM"
-        } else if track.playCount >= 100 && track.skipCount > 10 {
+        } else if track.playCount >= thresholds.play && track.skipCount >= thresholds.skip {
             return "FATIGUE"
-        } else if track.playCount < 100 && track.skipCount > 15 {
+        } else if track.playCount < thresholds.play && track.skipCount >= thresholds.skip {
             return "DISLIKED"
         } else {
             return "STANDARD"
@@ -267,8 +292,8 @@ struct ListeningHabitsView: View {
         guard let playCountVal: Int = proxy.value(atX: location.x),
               let skipCountVal: Int = proxy.value(atY: location.y) else { return }
         
-        // Find track closest to this play and skip count coordinates
-        let sorted = manager.tracks.sorted { t1, t2 in
+        // Find track closest to this play and skip count coordinates (searching only from our active display subset)
+        let sorted = scatterPlotTracks.sorted { t1, t2 in
             let d1 = pow(Double(t1.playCount - playCountVal), 2) + pow(Double(t1.skipCount - skipCountVal), 2)
             let d2 = pow(Double(t2.playCount - playCountVal), 2) + pow(Double(t2.skipCount - skipCountVal), 2)
             return d1 < d2

@@ -10,7 +10,7 @@ struct TimeMachineView: View {
                 // Header Section
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Time Machine")
-                        .font(.system(.title1, design: .rounded))
+                        .font(.system(.title, design: .rounded))
                         .fontWeight(.bold)
                         .foregroundColor(.white)
                     
@@ -35,7 +35,7 @@ struct TimeMachineView: View {
                                 .foregroundColor(.secondary)
                         }
                         
-                        if manager.tracksAddedTimeline.isEmpty {
+                        if manager.cumulativeTracksAddedTimeline.isEmpty {
                             HStack {
                                 Spacer()
                                 Text("No timeline data available. Add tracks or toggle Demo Mode.")
@@ -46,7 +46,7 @@ struct TimeMachineView: View {
                             .frame(height: 240)
                         } else {
                             VStack {
-                                Chart(manager.tracksAddedTimeline) { stat in
+                                Chart(manager.cumulativeTracksAddedTimeline) { stat in
                                     // Area fill for glowing background effect
                                     AreaMark(
                                         x: .value("Date", stat.date),

@@ -1,6 +1,8 @@
 import Foundation
 import SwiftUI
 import Combine
+import AppKit
+import UniformTypeIdentifiers
 
 @MainActor
 class MusicLibraryManager: ObservableObject {
@@ -21,7 +23,7 @@ class MusicLibraryManager: ObservableObject {
         loadDemoLibrary()
     }
     
-    // Toggle between live library and gorgeous demo library
+    // Toggle between live library and demo library
     func toggleMode() {
         isDemoMode.toggle()
         if isDemoMode {
@@ -29,215 +31,231 @@ class MusicLibraryManager: ObservableObject {
             syncError = nil
         } else {
             Task {
-                await fetchLiveLibrary(forceLaunch: false)
+                await fetchLiveLibrary()
             }
         }
     }
     
-    // Launch Music app programmatically
+    // Open Music app (optional; not required since we read the XML directly)
     func launchMusicApp() {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
         process.arguments = ["-a", "Music"]
-        
-        do {
-            try process.run()
-            musicAppRunningState = .running
-            syncError = nil
-            // Wait a bit and attempt sync
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-                Task {
-                    await self.fetchLiveLibrary(forceLaunch: true)
-                }
-            }
-        } catch {
-            self.syncError = "Failed to launch macOS Music app: \(error.localizedDescription)"
-        }
+        try? process.run()
     }
     
-    // MARK: - Live Library Fetching (JXA script execution via Process)
-    func fetchLiveLibrary(forceLaunch: Bool = false) async {
+    // MARK: - Live Library Fetching (XML file — no permissions required)
+
+    func fetchLiveLibrary() async {
         self.isLoading = true
         self.syncError = nil
-        
-        // 1. First, check if Music App is running (unless forceLaunch is true)
-        if !forceLaunch {
-            let isRunning = await checkIsMusicAppRunning()
-            if !isRunning {
-                self.musicAppRunningState = .notRunning
-                self.isLoading = false
-                self.tracks = []
-                return
-            }
-        }
-        
         self.musicAppRunningState = .running
-        
-        // 2. The robust bulk JXA script
-        let jxaScript = #"""
-        (function() {
-            var app = Application("Music");
-            if (!app.running()) {
-                return JSON.stringify({ "error": "Music application is not running." });
-            }
-            
-            var library;
-            try {
-                library = app.libraryPlaylists[0];
-                if (!library) {
-                    return JSON.stringify({ "error": "Library playlist is unavailable." });
-                }
-            } catch(e) {
-                return JSON.stringify({ "error": "Could not access Music Library. Please check automation permissions." });
-            }
-            
-            var tracks = library.tracks;
-            var count = 0;
-            try {
-                count = tracks.length;
-            } catch(e) {
-                return JSON.stringify({ "error": "Could not query track count. Permissions may be restricted." });
-            }
-            
-            if (count === 0) {
-                return JSON.stringify([]);
-            }
-            
-            var names = [];
-            var artists = [];
-            var albums = [];
-            var genres = [];
-            var playCounts = [];
-            var skipCounts = [];
-            var ratings = [];
-            var datesAdded = [];
-            var lastsPlayed = [];
-            var years = [];
-            
-            try { names = tracks.name(); } catch(e) {}
-            try { artists = tracks.artist(); } catch(e) {}
-            try { albums = tracks.album(); } catch(e) {}
-            try { genres = tracks.genre(); } catch(e) {}
-            try { playCounts = tracks.playedCount(); } catch(e) {}
-            try { skipCounts = tracks.skippedCount(); } catch(e) {}
-            try { ratings = tracks.rating(); } catch(e) {}
-            try { datesAdded = tracks.dateAdded(); } catch(e) {}
-            try { lastsPlayed = tracks.playedDate(); } catch(e) {}
-            try { years = tracks.year(); } catch(e) {}
-            
-            var list = [];
-            var itemsCount = names.length;
-            for (var i = 0; i < itemsCount; i++) {
-                var dAdded = datesAdded[i];
-                var dPlayed = lastsPlayed[i];
-                
-                list.push({
-                    "name": names[i] || "Unknown Track",
-                    "artist": artists[i] || "Unknown Artist",
-                    "album": albums[i] || "Unknown Album",
-                    "genre": genres[i] || "Unknown Genre",
-                    "playCount": playCounts[i] || 0,
-                    "skipCount": skipCounts[i] || 0,
-                    "rating": ratings[i] || 0,
-                    "dateAdded": dAdded ? new Date(dAdded).getTime() / 1000 : null,
-                    "lastPlayed": dPlayed ? new Date(dPlayed).getTime() / 1000 : null,
-                    "year": years[i] || 0
-                });
-            }
-            return JSON.stringify(list);
-        })();
-        """#
-        
-        // 3. Execute the JXA script asynchronously off the main thread
-        let result = await runOsaScript(jxaScript)
-        
+
+        let result = await Task.detached(priority: .userInitiated) {
+            Self.readLibraryFromXML()
+        }.value
+
         switch result {
-        case .success(let jsonString):
-            // Parse the output
-            do {
-                let data = jsonString.data(using: .utf8) ?? Data()
-                
-                // Check for JXA-level custom errors
-                if let errorDict = try? JSONSerialization.jsonObject(with: data) as? [String: String],
-                   let errorMessage = errorDict["error"] {
-                    self.syncError = errorMessage
-                    if errorMessage.contains("automation") || errorMessage.contains("Permissions") {
-                        self.musicAppRunningState = .permissionDenied
-                    }
-                    self.tracks = []
-                    self.isLoading = false
-                    return
-                }
-                
-                let decoder = JSONDecoder()
-                let fetchedTracks = try decoder.decode([Track].self, from: data)
-                
-                if fetchedTracks.isEmpty {
-                    self.syncError = "Your macOS Music library is currently empty."
-                    self.tracks = []
-                } else {
-                    self.tracks = fetchedTracks
-                    self.syncError = nil
-                }
-            } catch {
-                self.syncError = "Failed to parse Music library metadata. Ensure automation permissions are active. Details: \(error.localizedDescription)"
+        case .success(let fetchedTracks):
+            if fetchedTracks.isEmpty {
+                self.syncError = "Your Music library appears to be empty."
+            } else {
+                self.tracks = fetchedTracks
+                self.syncError = nil
             }
         case .failure(let error):
             self.syncError = error.localizedDescription
-            if error.localizedDescription.contains("not allowed") || error.localizedDescription.contains("permission") {
-                self.musicAppRunningState = .permissionDenied
-            }
         }
-        
+
         self.isLoading = false
     }
+
+    // MARK: - Manual XML Selection File Dialog
     
-    private func checkIsMusicAppRunning() async -> Bool {
-        let checkScript = "Application('Music').running()"
-        let result = await runOsaScript(checkScript)
-        switch result {
-        case .success(let val):
-            return val.trimmingCharacters(in: .whitespacesAndNewlines) == "true"
-        case .failure:
-            return false
+    func selectXMLFileManually() async {
+        let openPanel = NSOpenPanel()
+        openPanel.title = "Select Exported Music Library XML"
+        openPanel.message = "Choose the 'Library.xml' or 'Music Library.xml' file exported from Music.app"
+        openPanel.prompt = "Select XML"
+        openPanel.showsResizeIndicator = true
+        openPanel.showsHiddenFiles = false
+        openPanel.canChooseDirectories = false
+        openPanel.canChooseFiles = true
+        openPanel.allowsMultipleSelection = false
+        openPanel.allowedContentTypes = [.xml, .propertyList]
+        
+        if openPanel.runModal() == .OK, let url = openPanel.url {
+            UserDefaults.standard.set(url.path, forKey: "customXMLPath")
+            await fetchLiveLibrary()
         }
     }
     
-    private func runOsaScript(_ script: String) async -> Result<String, Error> {
-        return await Task.detached(priority: .userInitiated) {
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-            process.arguments = ["-l", "JavaScript", "-e", script]
-            
-            let outputPipe = Pipe()
-            let errorPipe = Pipe()
-            process.standardOutput = outputPipe
-            process.standardError = errorPipe
-            
-            do {
-                try process.run()
-                process.waitUntilExit()
-                
-                let status = process.terminationStatus
-                if status == 0 {
-                    let data = outputPipe.fileHandleForReading.readDataToEndOfFile()
-                    if let output = String(data: data, encoding: .utf8) {
-                        return .success(output)
-                    } else {
-                        return .failure(NSError(domain: "OsaScriptError", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to read string output."]))
-                    }
-                } else {
-                    let errData = errorPipe.fileHandleForReading.readDataToEndOfFile()
-                    let errString = String(data: errData, encoding: .utf8) ?? "Unknown AppleScript JXA error"
-                    return .failure(NSError(domain: "OsaScriptError", code: Int(status), userInfo: [NSLocalizedDescriptionKey: errString]))
-                }
-            } catch {
-                return .failure(error)
-            }
-        }.value
+    func clearCustomXMLPath() async {
+        UserDefaults.standard.removeObject(forKey: "customXMLPath")
+        await fetchLiveLibrary()
     }
-    
+
+    // Discover the Music library XML path from Music's own preferences,
+    // then parse it as an Apple plist — no sandbox or TCC permissions needed.
+    private nonisolated static func readLibraryFromXML() -> Result<[Track], Error> {
+        // 1. Find the library-url stored by Music.app in its preferences
+        guard let libraryURL = musicLibraryXMLURL() else {
+            return .failure(NSError(
+                domain: "AuraXMLError", code: 1,
+                userInfo: [NSLocalizedDescriptionKey:
+                    "Could not locate your Music Library XML file. Aura searched next to your library bundle and in the Backups/ folder.\n\nPlease use the Export option: in Music.app choose File → Library → Export Library… and save as iTunes XML anywhere, then retry."
+                ]
+            ))
+        }
+
+        // 2. Load raw data
+        guard let data = try? Data(contentsOf: libraryURL) else {
+            return .failure(NSError(
+                domain: "AuraXMLError", code: 2,
+                userInfo: [NSLocalizedDescriptionKey:
+                    "Found library at \(libraryURL.path) but could not read it. Make sure Music.app has written the XML export (Settings → Files → Share Music Library XML)."
+                ]
+            ))
+        }
+
+        // 3. Parse as an Apple property list
+        guard let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
+              let tracksDict = plist["Tracks"] as? [String: Any] else {
+            return .failure(NSError(
+                domain: "AuraXMLError", code: 3,
+                userInfo: [NSLocalizedDescriptionKey: "Music Library XML format was unrecognised."]
+            ))
+        }
+
+        // 4. Map each track entry to our Track model
+        let isoFormatter = ISO8601DateFormatter()
+        var tracks: [Track] = []
+        tracks.reserveCapacity(tracksDict.count)
+
+        for (_, value) in tracksDict {
+            guard let info = value as? [String: Any] else { continue }
+
+            // Skip non-file track types (radio streams, videos, etc.)
+            if let kind = info["Track Type"] as? String, kind != "File" { continue }
+
+            let name      = info["Name"]   as? String ?? "Unknown Track"
+            let artist    = info["Artist"] as? String ?? "Unknown Artist"
+            let album     = info["Album"]  as? String ?? "Unknown Album"
+            let genre     = info["Genre"]  as? String ?? "Unknown Genre"
+            let playCount = info["Play Count"]  as? Int ?? 0
+            let skipCount = info["Skip Count"]  as? Int ?? 0
+            let rating    = info["Rating"]       as? Int ?? 0
+            let year      = info["Year"]         as? Int ?? 0
+
+            // Date Added — stored as ISO 8601 date in the XML plist
+            var dateAdded: Double? = nil
+            if let d = info["Date Added"] as? Date {
+                dateAdded = d.timeIntervalSince1970
+            } else if let s = info["Date Added"] as? String,
+                      let d = isoFormatter.date(from: s) {
+                dateAdded = d.timeIntervalSince1970
+            }
+
+            // Last Played — "Play Date UTC" in the XML
+            var lastPlayed: Double? = nil
+            if let d = info["Play Date UTC"] as? Date {
+                lastPlayed = d.timeIntervalSince1970
+            } else if let s = info["Play Date UTC"] as? String,
+                      let d = isoFormatter.date(from: s) {
+                lastPlayed = d.timeIntervalSince1970
+            }
+
+            tracks.append(Track(
+                name: name, artist: artist, album: album, genre: genre,
+                playCount: playCount, skipCount: skipCount, rating: rating,
+                dateAdded: dateAdded, lastPlayed: lastPlayed, year: year
+            ))
+        }
+
+        return .success(tracks)
+    }
+
+    // Resolves the Music Library XML path.
+    // Music 1.4+ (macOS Ventura+) removed the "Share XML" option, so the canonical XML
+    // is no longer written next to the .musiclibrary bundle.  Instead we do a broader
+    // multi-location search, including the Backups/ subfolder Music creates automatically.
+    private nonisolated static func musicLibraryXMLURL() -> URL? {
+        // All filenames Music has ever used for the XML export
+        let candidateNames = [
+            "Music Library.xml",
+            "iTunes Library.xml",
+            "Library.xml",           // found in Backups/
+        ]
+        let fm = FileManager.default
+
+        // Helper: return the first candidate XML that exists in `dir`
+        func first(in dir: URL) -> URL? {
+            for name in candidateNames {
+                let candidate = dir.appendingPathComponent(name)
+                if fm.fileExists(atPath: candidate.path) { return candidate }
+            }
+            return nil
+        }
+
+        // 0. Check custom XML path persistently chosen by the user
+        if let customPath = UserDefaults.standard.string(forKey: "customXMLPath") {
+            let customURL = URL(fileURLWithPath: customPath)
+            if fm.fileExists(atPath: customURL.path) { return customURL }
+        }
+
+        // 1. Read the library-url stored by Music.app in its preferences plist.
+        //    The URL uses percent-encoding with Unicode decomposition (e.g. Mu%CC%81sica),
+        //    so we must go through .path to get a filesystem-usable path.
+        let prefsPath = NSHomeDirectory() + "/Library/Preferences/com.apple.Music.plist"
+        if let prefsData = try? Data(contentsOf: URL(fileURLWithPath: prefsPath)),
+           let prefs = try? PropertyListSerialization.propertyList(from: prefsData, format: nil) as? [String: Any],
+           let rawURL = prefs["library-url"] as? String,
+           let encodedURL = URL(string: rawURL) {
+
+            // Convert the percent-encoded URL back to a real filesystem path
+            let bundlePath = encodedURL.path          // e.g. /Users/.../Música/iTunes/Music Library.musiclibrary
+            let bundleURL  = URL(fileURLWithPath: bundlePath)
+            let parentDir  = bundleURL.deletingLastPathComponent()   // .../iTunes/
+
+            // Check next to the bundle
+            if let found = first(in: parentDir) { return found }
+
+            // Check in Backups/ subfolder (Music writes here automatically)
+            let backupsDir = parentDir.appendingPathComponent("Backups")
+            if let found = first(in: backupsDir) { return found }
+
+            // Also check one level up (edge case: library stored deeper)
+            let grandparentDir = parentDir.deletingLastPathComponent()
+            if let found = first(in: grandparentDir) { return found }
+        }
+
+        // 2. Fallback: standard ~/Music/Music/ location
+        let defaultDir = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Music/Music")
+        if let found = first(in: defaultDir) { return found }
+
+        // 3. Fallback: ~/Music/iTunes/ (older setups)
+        let itunesDir = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Music/iTunes")
+        if let found = first(in: itunesDir) { return found }
+        if let found = first(in: itunesDir.appendingPathComponent("Backups")) { return found }
+
+        // 4. Fallback: broader user directories (~/Downloads, ~/Documents, ~/Desktop)
+        let homeURL = URL(fileURLWithPath: NSHomeDirectory())
+        let searchDirs = [
+            homeURL.appendingPathComponent("Downloads"),
+            homeURL.appendingPathComponent("Documents"),
+            homeURL.appendingPathComponent("Desktop")
+        ]
+        for dir in searchDirs {
+            if let found = first(in: dir) { return found }
+        }
+
+        return nil
+    }
+
+
+
     // MARK: - Load Stunning Offline Demo Library (Mock Data)
+
     func loadDemoLibrary() {
         let now = Date().timeIntervalSince1970
         let oneDay: Double = 86400
@@ -338,7 +356,7 @@ class MusicLibraryManager: ObservableObject {
         // Add library growth over time
         // Loop to insert older, middle, and newer songs to simulate timeline growth over past years
         let cal = Calendar.current
-        var currentDate = cal.date(byAdding: .year, value: -5, to: Date()) ?? Date()
+        let currentDate = cal.date(byAdding: .year, value: -5, to: Date()) ?? Date()
         for yearIdx in 0..<5 {
             for monthIdx in 1...12 {
                 let addedTimestamp = cal.date(byAdding: .month, value: (yearIdx * 12) + monthIdx, to: currentDate)?.timeIntervalSince1970 ?? now
@@ -430,21 +448,37 @@ class MusicLibraryManager: ObservableObject {
     var forgottenGems: [Track] {
         let twoYearsAgo = Date().addingTimeInterval(-2 * 365 * 86400)
         
-        return tracks.filter { track in
-            // Rated 4-5 stars (represented as 80-100 in Music app)
+        // Try filtering by explicit rating first (>= 4 stars / 80 rating)
+        var candidates = tracks.filter { track in
             guard track.rating >= 80 else { return false }
             
-            // Has not been played in over 2 years
             if let lastPlayed = track.lastPlayedDate {
                 return lastPlayed < twoYearsAgo
-            } else {
-                // If it has never been played but was added over 2 years ago
-                if let added = track.addedDate {
+            } else if let added = track.addedDate {
+                return added < twoYearsAgo
+            }
+            return false
+        }
+        
+        // Fallback: If no rated gems, use high play counts (plays >= 12 or plays in top 15%)
+        if candidates.count < 3 {
+            let plays = tracks.map(\.playCount)
+            let maxPlay = plays.max() ?? 0
+            let playThreshold = max(10, maxPlay / 5)
+            
+            candidates = tracks.filter { track in
+                guard track.playCount >= playThreshold else { return false }
+                
+                if let lastPlayed = track.lastPlayedDate {
+                    return lastPlayed < twoYearsAgo
+                } else if let added = track.addedDate {
                     return added < twoYearsAgo
                 }
                 return false
             }
-        }.sorted(by: { ($0.lastPlayedDate ?? Date.distantPast) < ($1.lastPlayedDate ?? Date.distantPast) })
+        }
+        
+        return candidates.sorted(by: { ($0.lastPlayedDate ?? Date.distantPast) < ($1.lastPlayedDate ?? Date.distantPast) })
     }
     
     // Timeline of Tracks Added (by month/year)
@@ -472,6 +506,16 @@ class MusicLibraryManager: ObservableObject {
         return groupings.values.map { val in
             TimelineStat(date: val.date, monthYearString: formatter.string(from: val.date), count: val.count)
         }.sorted(by: { $0.date < $1.date })
+    }
+    
+    // Cumulative Library Growth Timeline
+    var cumulativeTracksAddedTimeline: [TimelineStat] {
+        let monthly = tracksAddedTimeline
+        var runningTotal = 0
+        return monthly.map { stat in
+            runningTotal += stat.count
+            return TimelineStat(date: stat.date, monthYearString: stat.monthYearString, count: runningTotal)
+        }
     }
     
     // Era Distribution (Breakdown by Release Year)

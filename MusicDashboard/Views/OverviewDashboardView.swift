@@ -11,7 +11,7 @@ struct OverviewDashboardView: View {
                 // Header Section
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Overview Dashboard")
-                        .font(.system(.title1, design: .rounded))
+                        .font(.system(.title, design: .rounded))
                         .fontWeight(.bold)
                         .foregroundColor(.white)
                     
@@ -93,7 +93,7 @@ struct OverviewDashboardView: View {
                         } else {
                             HStack(spacing: 30) {
                                 // Native Swift Chart
-                                Chart(manager.genreDistribution) { stat in
+                                Chart(chartGenres) { stat in
                                     BarMark(
                                         x: .value("Count", stat.count),
                                         y: .value("Genre", stat.genre)
@@ -141,7 +141,7 @@ struct OverviewDashboardView: View {
                                     
                                     ScrollView(.vertical, showsIndicators: false) {
                                         VStack(spacing: 10) {
-                                            ForEach(manager.genreDistribution.prefix(6)) { stat in
+                                            ForEach(chartGenres) { stat in
                                                 HStack(spacing: 10) {
                                                     Circle()
                                                         .fill(genreColor(for: stat.genre))
@@ -173,17 +173,31 @@ struct OverviewDashboardView: View {
         }
     }
     
+    // Helper: Cap genres to top 5 + "Others"
+    private var chartGenres: [GenreStat] {
+        let allGenres = manager.genreDistribution
+        if allGenres.count <= 6 { return allGenres }
+        let topGenres = Array(allGenres.prefix(5))
+        let othersCount = allGenres.suffix(from: 5).reduce(0) { $0 + $1.count }
+        let othersPercent = allGenres.suffix(from: 5).reduce(0.0) { $0 + $1.percentage }
+        let othersStat = GenreStat(genre: "Others", count: othersCount, percentage: othersPercent)
+        return topGenres + [othersStat]
+    }
+    
     // Helper: Dynamic Premium Colors for Genres
     private func genreColor(for genre: String) -> Color {
-        switch genre.lowercased() {
-        case "synthwave": return Color.purple
-        case "indie rock", "rock": return Color.cyan
-        case "lofi house", "house": return Color.orange
-        case "orchestral", "soundtrack": return Color.pink
-        case "dark jazz", "jazz": return Color.yellow
-        case "dreampop", "shoegaze", "pop": return Color.teal
-        default: return Color.gray
-        }
+        let g = genre.lowercased()
+        if g.contains("synthwave") || g.contains("electronic") || g.contains("techno") || g.contains("dance") { return Color.purple }
+        if g.contains("rock") || g.contains("indie") || g.contains("alternative") { return Color.cyan }
+        if g.contains("house") || g.contains("lofi") || g.contains("chill") { return Color.orange }
+        if g.contains("classical") || g.contains("orchestral") || g.contains("soundtrack") { return Color.pink }
+        if g.contains("jazz") || g.contains("blues") || g.contains("soul") { return Color.yellow }
+        if g.contains("pop") || g.contains("hip hop") || g.contains("rap") || g.contains("r&b") { return Color.teal }
+        if g.contains("others") || g.contains("other") { return Color.gray.opacity(0.8) }
+        
+        let colors: [Color] = [.purple, .cyan, .orange, .pink, .yellow, .teal, .indigo, .mint]
+        let index = abs(genre.hashValue) % colors.count
+        return colors[index]
     }
 }
 

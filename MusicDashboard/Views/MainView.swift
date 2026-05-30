@@ -17,14 +17,24 @@ struct MainView: View {
             VStack(alignment: .leading, spacing: 20) {
                 // App Logo / Brand Section
                 HStack(spacing: 12) {
-                    ZStack {
-                        Circle()
-                            .fill(LinearGradient(colors: [.purple, .pink], startPoint: .topLeading, endPoint: .bottomTrailing))
+                    if let logoURL = Bundle.main.url(forResource: "AppIcon", withExtension: "png"),
+                       let nsImage = NSImage(contentsOf: logoURL) {
+                        Image(nsImage: nsImage)
+                            .resizable()
+                            .scaledToFill()
                             .frame(width: 32, height: 32)
-                        
-                        Image(systemName: "music.note")
-                            .font(.system(size: 16, weight: .bold))
-                            .foregroundColor(.white)
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                            .shadow(color: .black.opacity(0.35), radius: 3, y: 1)
+                    } else {
+                        ZStack {
+                            Circle()
+                                .fill(LinearGradient(colors: [.purple, .pink], startPoint: .topLeading, endPoint: .bottomTrailing))
+                                .frame(width: 32, height: 32)
+                            
+                            Image(systemName: "music.note")
+                                .font(.system(size: 16, weight: .bold))
+                                .foregroundColor(.white)
+                        }
                     }
                     
                     VStack(alignment: .leading, spacing: 2) {
@@ -155,6 +165,26 @@ struct MainView: View {
                         }
                         .padding(.horizontal, 12)
                         .disabled(manager.isLoading)
+                        
+                        Button(action: {
+                            Task { await manager.selectXMLFileManually() }
+                        }) {
+                            HStack(spacing: 6) {
+                                Image(systemName: "doc.badge.plus")
+                                    .font(.system(size: 10))
+                                Text("Change XML Source...")
+                                    .font(.system(size: 10, weight: .semibold))
+                            }
+                            .foregroundColor(.secondary)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 6)
+                            .background(Color.white.opacity(0.02))
+                            .cornerRadius(6)
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.horizontal, 12)
+                        .padding(.top, 6)
+                        .disabled(manager.isLoading)
                     }
                 }
                 .padding(.bottom, 20)
@@ -177,13 +207,13 @@ struct MainView: View {
                 
                 // Main Dashboard Dynamic Display
                 VStack {
-                    if !manager.isDemoMode && manager.musicAppRunningState == .notRunning {
-                        // App Offline State
-                        MusicOfflineFallbackView(manager: manager)
+                    if !manager.isDemoMode && manager.isLoading {
+                        ProgressView("Reading Music library…")
+                            .foregroundColor(.secondary)
                             .transition(.opacity)
-                    } else if !manager.isDemoMode && manager.musicAppRunningState == .permissionDenied {
-                        // Permission Block State
-                        PermissionBlockedFallbackView()
+                    } else if !manager.isDemoMode, let errorMsg = manager.syncError {
+                        // XML not found or unreadable — show actionable guidance
+                        XMLErrorFallbackView(message: errorMsg, manager: manager)
                             .transition(.opacity)
                     } else {
                         // Normal Operations
@@ -216,153 +246,114 @@ struct MainView: View {
     }
 }
 
-// MARK: - Fallback: Music App Offline View
-struct MusicOfflineFallbackView: View {
+// MARK: - Fallback: XML Library Error
+struct XMLErrorFallbackView: View {
+    let message: String
     @ObservedObject var manager: MusicLibraryManager
     @State private var isHovered = false
-    
+
     var body: some View {
         GlassCard(cornerRadius: 20, shadowRadius: 16) {
             VStack(spacing: 22) {
-                // Logo Icon
-                ZStack {
-                    Circle()
-                        .fill(Color.purple.opacity(0.12))
-                        .frame(width: 64, height: 64)
-                    
-                    Image(systemName: "music.note.house.fill")
-                        .font(.system(size: 28))
-                        .foregroundColor(.purple)
-                }
-                
-                VStack(spacing: 8) {
-                    Text("macOS Music app is Offline")
-                        .font(.title3)
-                        .fontWeight(.bold)
-                        .foregroundColor(.white)
-                    
-                    Text("Aura needs to query the native Music app to load live statistics.\nPlease launch it to establish a secure connection.")
-                        .font(.body)
-                        .foregroundColor(.secondary)
-                        .multilineTextAlignment(.center)
-                        .lineSpacing(4)
-                }
-                .padding(.horizontal, 20)
-                
-                Button(action: {
-                    manager.launchMusicApp()
-                }) {
-                    HStack(spacing: 10) {
-                        Image(systemName: "play.fill")
-                            .font(.system(size: 11, weight: .bold))
-                        Text("Launch Music App & Sync")
-                            .font(.body)
-                            .fontWeight(.semibold)
-                    }
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 24)
-                    .padding(.vertical, 12)
-                    .background(
-                        RoundedRectangle(cornerRadius: 10)
-                            .fill(isHovered ? Color.purple.opacity(0.95) : Color.purple.opacity(0.8))
-                            .shadow(color: .purple.opacity(0.35), radius: 8, y: 4)
-                    )
-                }
-                .buttonStyle(.plain)
-                .onHover { hovering in
-                    isHovered = hovering
-                }
-                
-                if let err = manager.syncError {
-                    Text(err)
-                        .font(.caption)
-                        .foregroundColor(.red.opacity(0.8))
-                        .multilineTextAlignment(.center)
-                        .padding(.top, 8)
-                }
-            }
-            .padding(40)
-        }
-        .frame(width: 460)
-    }
-}
-
-// MARK: - Fallback: Permission Blocked View
-struct PermissionBlockedFallbackView: View {
-    var body: some View {
-        GlassCard(cornerRadius: 20, shadowRadius: 16) {
-            VStack(spacing: 24) {
-                // Alert Icon
                 ZStack {
                     Circle()
                         .fill(Color.orange.opacity(0.12))
                         .frame(width: 64, height: 64)
-                    
-                    Image(systemName: "hand.raised.fill")
+                    Image(systemName: "doc.text.magnifyingglass")
                         .font(.system(size: 28))
                         .foregroundColor(.orange)
                 }
-                
+
                 VStack(spacing: 8) {
-                    Text("Automation Permissions Required")
+                    Text("Could Not Read Music Library")
                         .font(.title3)
                         .fontWeight(.bold)
                         .foregroundColor(.white)
-                    
-                    Text("To build your personal music dashboard, macOS requires that you authorize Aura to automate and query the Music app.")
-                        .font(.body)
+
+                    Text(message)
+                        .font(.callout)
                         .foregroundColor(.secondary)
                         .multilineTextAlignment(.center)
-                        .lineSpacing(4)
+                        .lineSpacing(5)
                 }
-                .padding(.horizontal, 10)
-                
-                Divider().background(Color.white.opacity(0.1))
-                
+                .padding(.horizontal, 16)
+
+                Divider().background(Color.white.opacity(0.08))
+
+                // One-time setup instruction
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("How to Grant Permission:")
+                    Text("One-time setup (30 seconds):")
                         .font(.caption)
                         .fontWeight(.bold)
                         .foregroundColor(.white)
                         .textCase(.uppercase)
-                    
-                    HStack(alignment: .top, spacing: 10) {
-                        Text("1.")
-                            .font(.caption)
-                            .fontWeight(.bold)
-                            .foregroundColor(.orange)
-                        Text("Open **System Settings** on your Mac.")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                    
-                    HStack(alignment: .top, spacing: 10) {
-                        Text("2.")
-                            .font(.caption)
-                            .fontWeight(.bold)
-                            .foregroundColor(.orange)
-                        Text("Navigate to **Privacy & Security** > **Automation**.")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                    
-                    HStack(alignment: .top, spacing: 10) {
-                        Text("3.")
-                            .font(.caption)
-                            .fontWeight(.bold)
-                            .foregroundColor(.orange)
-                        Text("Find **Aura** in the list and toggle **Music** to ON.")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
+
+                    stepRow(number: "1", text: "Open **Music.app**.")
+                    stepRow(number: "2", text: "In the menu bar: **File → Library → Export Library…**")
+                    stepRow(number: "3", text: "Save the file anywhere (the name doesn't matter).")
+                    stepRow(number: "4", text: "Click **Retry** — Aura will find and read it automatically.")
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(16)
                 .background(Color.white.opacity(0.04))
                 .cornerRadius(10)
+
+                HStack(spacing: 16) {
+                    Button(action: {
+                        Task { await manager.fetchLiveLibrary() }
+                    }) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "arrow.triangle.2.circlepath")
+                                .font(.system(size: 12, weight: .bold))
+                            Text("Retry")
+                                .fontWeight(.semibold)
+                        }
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 28)
+                        .padding(.vertical, 11)
+                        .background(
+                            RoundedRectangle(cornerRadius: 10)
+                                .fill(isHovered ? Color.orange.opacity(0.95) : Color.orange.opacity(0.8))
+                                .shadow(color: .orange.opacity(0.3), radius: 8, y: 4)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .onHover { isHovered = $0 }
+                    
+                    Button(action: {
+                        Task { await manager.selectXMLFileManually() }
+                    }) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "doc.badge.plus")
+                                .font(.system(size: 12, weight: .bold))
+                            Text("Select XML Manually...")
+                                .fontWeight(.semibold)
+                        }
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 24)
+                        .padding(.vertical, 11)
+                        .background(
+                            RoundedRectangle(cornerRadius: 10)
+                                .fill(Color.white.opacity(0.1))
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
             }
             .padding(40)
         }
-        .frame(width: 480)
+        .frame(width: 520)
+    }
+
+    @ViewBuilder
+    private func stepRow(number: String, text: LocalizedStringKey) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Text(number + ".")
+                .font(.caption).fontWeight(.bold).foregroundColor(.orange)
+                .frame(width: 14, alignment: .leading)
+            Text(text)
+                .font(.caption).foregroundColor(.secondary).lineSpacing(3)
+        }
     }
 }
+
