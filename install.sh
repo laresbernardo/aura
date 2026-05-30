@@ -60,12 +60,29 @@ swiftc -O -sdk "$SDK_PATH" \
     "$SOURCE_DIR/MusicDashboard/Views/OverviewDashboardView.swift" \
     "$SOURCE_DIR/MusicDashboard/Views/ListeningHabitsView.swift" \
     "$SOURCE_DIR/MusicDashboard/Views/TimeMachineView.swift" \
+    "$SOURCE_DIR/MusicDashboard/Views/ArtistHallView.swift" \
+    "$SOURCE_DIR/MusicDashboard/Views/AuraProfileView.swift" \
     "$SOURCE_DIR/MusicDashboard/MusicDashboardApp.swift"
 
 echo -e "${GREEN}✓ Compilation successful.${NC}"
 
-# 5. Inject Info.plist
-cp "$SOURCE_DIR/MusicDashboard/Info.plist" "$APP_BUNDLE/Contents/Info.plist"
+# 5. Inject Info.plist & Auto-increment Version
+PLIST_FILE="$SOURCE_DIR/MusicDashboard/Info.plist"
+if [ -f "$PLIST_FILE" ]; then
+    CURRENT_VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$PLIST_FILE")
+    IFS='.' read -r major minor patch <<< "$CURRENT_VERSION"
+    NEXT_PATCH=$((patch + 1))
+    NEW_VERSION="$major.$minor.$NEXT_PATCH"
+    /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $NEW_VERSION" "$PLIST_FILE"
+    
+    CURRENT_BUILD=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$PLIST_FILE")
+    NEW_BUILD=$((CURRENT_BUILD + 1))
+    /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $NEW_BUILD" "$PLIST_FILE"
+    
+    echo -e "${GREEN}✓ Version bumped to $NEW_VERSION (Build $NEW_BUILD)${NC}"
+fi
+
+cp "$PLIST_FILE" "$APP_BUNDLE/Contents/Info.plist"
 
 # 5b. Generate .icns app icon from AppIcon.png (if provided)
 ICON_SOURCE="$SOURCE_DIR/MusicDashboard/AppIcon.png"

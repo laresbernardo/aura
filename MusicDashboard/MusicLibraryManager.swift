@@ -6,10 +6,19 @@ import UniformTypeIdentifiers
 
 @MainActor
 class MusicLibraryManager: ObservableObject {
+    enum SourceMode: String, CaseIterable, Identifiable {
+        case demo = "Demo Mode"
+        case xml = "XML File"
+        case direct = "Direct Sync"
+        
+        var id: String { rawValue }
+    }
+    
     @Published var tracks: [Track] = []
     @Published var isLoading: Bool = false
     @Published var syncError: String? = nil
-    @Published var isDemoMode: Bool = true // Default to true for a stunning first-use experience
+    @Published var isDemoMode: Bool = true // Keep for backwards compatibility
+    @Published var sourceMode: SourceMode = .demo
     @Published var musicAppRunningState: MusicAppState = .unknown
     
     enum MusicAppState {
@@ -23,20 +32,51 @@ class MusicLibraryManager: ObservableObject {
         loadDemoLibrary()
     }
     
-    // Toggle between live library and demo library
-    func toggleMode() {
-        isDemoMode.toggle()
-        if isDemoMode {
+    // Switch between the three library sources
+    func changeSourceMode(to newMode: SourceMode) {
+        sourceMode = newMode
+        isDemoMode = (newMode == .demo)
+        syncError = nil
+        
+        switch newMode {
+        case .demo:
             loadDemoLibrary()
-            syncError = nil
-        } else {
-            Task {
-                await fetchLiveLibrary()
-            }
+        case .xml:
+            Task { await fetchLiveLibrary() }
+        case .direct:
+            Task { await fetchDirectLibrary() }
         }
     }
     
-    // Open Music app (optional; not required since we read the XML directly)
+    // Toggle cycling (fallback helper)
+    func toggleMode() {
+        if sourceMode == .demo {
+            changeSourceMode(to: .xml)
+        } else if sourceMode == .xml {
+            changeSourceMode(to: .direct)
+        } else {
+            changeSourceMode(to: .demo)
+        }
+    }
+    
+    // Sidebar dynamic information
+    var sourceModeDescription: String {
+        switch sourceMode {
+        case .demo: return "Stunning Offline Preview Mode"
+        case .xml: return "Connected via exported XML file"
+        case .direct: return "Communicating directly with Music.app"
+        }
+    }
+    
+    var sourceModeColor: Color {
+        switch sourceMode {
+        case .demo: return .purple
+        case .xml: return .orange
+        case .direct: return .emerald
+        }
+    }
+    
+    // Open Music app
     func launchMusicApp() {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
@@ -68,6 +108,185 @@ class MusicLibraryManager: ObservableObject {
         }
 
         self.isLoading = false
+    }
+
+    // MARK: - Direct Apple Music App Connection (JXA Engine)
+    
+    func fetchDirectLibrary(forceLaunch: Bool = false) async {
+        self.isLoading = true
+        self.syncError = nil
+        
+        if !forceLaunch {
+            let isRunning = await checkIsMusicAppRunning()
+            if !isRunning {
+                self.musicAppRunningState = .notRunning
+                self.isLoading = false
+                self.tracks = []
+                self.syncError = "The Music.app is not running. Please launch it to establish a direct connection."
+                return
+            }
+        }
+        
+        self.musicAppRunningState = .running
+        
+        let jxaScript = #"""
+        (function() {
+            var app = Application("Music");
+            if (!app.running()) {
+                return JSON.stringify({ "error": "Music application is not running." });
+            }
+            
+            var library;
+            try {
+                library = app.libraryPlaylists[0];
+                if (!library) {
+                    return JSON.stringify({ "error": "Library playlist is unavailable." });
+                }
+            } catch(e) {
+                return JSON.stringify({ "error": "Could not access Music Library. Please check automation permissions." });
+            }
+            
+            var tracks = library.tracks;
+            var count = 0;
+            try {
+                count = tracks.length;
+            } catch(e) {
+                return JSON.stringify({ "error": "Could not query track count. Permissions may be restricted." });
+            }
+            
+            if (count === 0) {
+                return JSON.stringify([]);
+            }
+            
+            var names = [];
+            var artists = [];
+            var albums = [];
+            var genres = [];
+            var playCounts = [];
+            var skipCounts = [];
+            var ratings = [];
+            var datesAdded = [];
+            var lastsPlayed = [];
+            var years = [];
+            
+            try { names = tracks.name(); } catch(e) {}
+            try { artists = tracks.artist(); } catch(e) {}
+            try { albums = tracks.album(); } catch(e) {}
+            try { genres = tracks.genre(); } catch(e) {}
+            try { playCounts = tracks.playedCount(); } catch(e) {}
+            try { skipCounts = tracks.skippedCount(); } catch(e) {}
+            try { ratings = tracks.rating(); } catch(e) {}
+            try { datesAdded = tracks.dateAdded(); } catch(e) {}
+            try { lastsPlayed = tracks.playedDate(); } catch(e) {}
+            try { years = tracks.year(); } catch(e) {}
+            
+            var list = [];
+            var itemsCount = names.length;
+            for (var i = 0; i < itemsCount; i++) {
+                var dAdded = datesAdded[i];
+                var dPlayed = lastsPlayed[i];
+                
+                list.push({
+                    "name": names[i] || "Unknown Track",
+                    "artist": artists[i] || "Unknown Artist",
+                    "album": albums[i] || "Unknown Album",
+                    "genre": genres[i] || "Unknown Genre",
+                    "playCount": playCounts[i] || 0,
+                    "skipCount": skipCounts[i] || 0,
+                    "rating": ratings[i] || 0,
+                    "dateAdded": dAdded ? new Date(dAdded).getTime() / 1000 : null,
+                    "lastPlayed": dPlayed ? new Date(dPlayed).getTime() / 1000 : null,
+                    "year": years[i] || 0
+                });
+            }
+            return JSON.stringify(list);
+        })();
+        """#
+        
+        let result = await runOsaScript(jxaScript)
+        
+        switch result {
+        case .success(let jsonString):
+            do {
+                let data = jsonString.data(using: .utf8) ?? Data()
+                
+                if let errorDict = try? JSONSerialization.jsonObject(with: data) as? [String: String],
+                   let errorMessage = errorDict["error"] {
+                    self.syncError = errorMessage
+                    if errorMessage.contains("automation") || errorMessage.contains("Permissions") {
+                        self.musicAppRunningState = .permissionDenied
+                    }
+                    self.tracks = []
+                    self.isLoading = false
+                    return
+                }
+                
+                let decoder = JSONDecoder()
+                let fetchedTracks = try decoder.decode([Track].self, from: data)
+                
+                if fetchedTracks.isEmpty {
+                    self.syncError = "Your macOS Music library appears to be empty."
+                    self.tracks = []
+                } else {
+                    self.tracks = fetchedTracks
+                    self.syncError = nil
+                }
+            } catch {
+                self.syncError = "Failed to parse Music library. Details: \(error.localizedDescription)"
+            }
+        case .failure(let error):
+            self.syncError = error.localizedDescription
+            if error.localizedDescription.contains("not allowed") || error.localizedDescription.contains("permission") {
+                self.musicAppRunningState = .permissionDenied
+            }
+        }
+        
+        self.isLoading = false
+    }
+    
+    private func checkIsMusicAppRunning() async -> Bool {
+        let checkScript = "Application('Music').running()"
+        let result = await runOsaScript(checkScript)
+        switch result {
+        case .success(let val):
+            return val.trimmingCharacters(in: .whitespacesAndNewlines) == "true"
+        case .failure:
+            return false
+        }
+    }
+    
+    private func runOsaScript(_ script: String) async -> Result<String, Error> {
+        return await Task.detached(priority: .userInitiated) {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+            process.arguments = ["-l", "JavaScript", "-e", script]
+            
+            let outputPipe = Pipe()
+            let errorPipe = Pipe()
+            process.standardOutput = outputPipe
+            process.standardError = errorPipe
+            
+            do {
+                try process.run()
+                process.waitUntilExit()
+                
+                let status = process.terminationStatus
+                if status == 0 {
+                    let data = outputPipe.fileHandleForReading.readDataToEndOfFile()
+                    if let output = String(data: data, encoding: .utf8) {
+                        return .success(output)
+                    } else {
+                        return .failure(NSError(domain: "OsaScriptError", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to read string output."]))
+                    }
+                } else {
+                    let errData = errorPipe.fileHandleForReading.readDataToEndOfFile()
+                    let errString = String(data: errData, encoding: .utf8) ?? "Unknown AppleScript JXA error"
+                    return .failure(NSError(domain: "OsaScriptError", code: Int(status), userInfo: [NSLocalizedDescriptionKey: errString]))
+                }
+            } catch {
+                return .failure(error)
+            }
+        }.value
     }
 
     // MARK: - Manual XML Selection File Dialog
@@ -552,4 +771,120 @@ class MusicLibraryManager: ObservableObject {
             return YearStat(era: era, count: count)
         }
     }
+    
+    // MARK: - Advanced App & Analytics Computed Stats
+    
+    var appVersionString: String {
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.0"
+        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"
+        return "v\(version) (Build \(build))"
+    }
+    
+    var topArtistsDetailed: [ArtistStat] {
+        var artistTracks: [String: [Track]] = [:]
+        for track in tracks {
+            artistTracks[track.artist, default: []].append(track)
+        }
+        
+        return artistTracks.map { artist, tracks in
+            let trackCount = tracks.count
+            let totalPlays = tracks.reduce(0) { $0 + $1.playCount }
+            let totalSkips = tracks.reduce(0) { $0 + $1.skipCount }
+            let averagePlays = trackCount > 0 ? Double(totalPlays) / Double(trackCount) : 0.0
+            
+            let totalActivity = totalPlays + totalSkips
+            let engagement = totalActivity > 0 ? (Double(totalPlays) / Double(totalActivity)) * 100.0 : 0.0
+            
+            return ArtistStat(artist: artist, trackCount: trackCount, totalPlays: totalPlays, averagePlaysPerTrack: averagePlays, totalSkips: totalSkips, engagementScore: engagement)
+        }.sorted(by: { $0.totalPlays > $1.totalPlays })
+    }
+    
+    var listeningPersona: PersonaProfile {
+        let total = Double(tracks.count)
+        guard total > 0 else {
+            return PersonaProfile(
+                name: "The Sonic Explorer",
+                subtitle: "Quiet Beginnings",
+                description: "Your library profile will evolve as you sync your music tracks and establish your listening aura.",
+                nostalgiaIndex: 0, varietyScore: 0, focusScore: 0, loyaltyScore: 0,
+                gradientColors: [.purple, .indigo]
+            )
+        }
+        
+        // 1. Nostalgia Index (Tracks pre-2000)
+        let pre2000Count = Double(tracks.filter { $0.year > 0 && $0.year < 2000 }.count)
+        let nostalgia = (pre2000Count / total) * 100.0
+        
+        // 2. Variety Score (Distinct genres vs total count)
+        let genres = Set(tracks.map { $0.genre })
+        let variety = min(100.0, (Double(genres.count) / total) * 300.0) // normalized factor
+        
+        // 3. Focus Score (Top Artist plays / total plays)
+        let totalPlays = Double(tracks.reduce(0) { $0 + $1.playCount })
+        var artistPlays: [String: Int] = [:]
+        for track in tracks {
+            artistPlays[track.artist, default: 0] += track.playCount
+        }
+        let topArtistPlayCount = Double(artistPlays.values.max() ?? 0)
+        let focus = totalPlays > 0 ? (topArtistPlayCount / totalPlays) * 100.0 : 0.0
+        
+        // 4. Loyalty Score (Plays vs Skips)
+        let totalSkips = Double(tracks.reduce(0) { $0 + $1.skipCount })
+        let totalEvents = totalPlays + totalSkips
+        let loyalty = totalEvents > 0 ? (totalPlays / totalEvents) * 100.0 : 100.0
+        let skipRatio = totalEvents > 0 ? (totalSkips / totalEvents) * 100.0 : 0.0
+        
+        // 5. Single dominant genre percent
+        var genreCounts: [String: Int] = [:]
+        for track in tracks {
+            genreCounts[track.genre, default: 0] += 1
+        }
+        let topGenreCount = Double(genreCounts.values.max() ?? 0)
+        let dominantGenrePercent = (topGenreCount / total) * 100.0
+        
+        // Categorize Persona
+        let name: String
+        let subtitle: String
+        let description: String
+        let gradientColors: [Color]
+        
+        if dominantGenrePercent >= 50.0 {
+            name = "The Genre Specialist"
+            subtitle = "Hyper-focused Purist"
+            description = "You know exactly what you love. A single musical genre dominates your collection, showing an unyielding dedication to a specific cultural soundscape."
+            gradientColors = [.pink, .red]
+        } else if nostalgia >= 35.0 {
+            name = "The Timeless Archivist"
+            subtitle = "Historical Connoisseur"
+            description = "You find beauty in historical eras. A heavy proportion of your library belongs to the classic decades of the past, celebrating musical nostalgia and vintage vibes."
+            gradientColors = [.orange, .yellow]
+        } else if focus >= 15.0 {
+            name = "The Loyal Fanatic"
+            subtitle = "Artist Devotee"
+            description = "Your heart belongs to a select few. You dedicate an exceptionally high percentage of your cumulative listening time to your top artist, showing immense loyalty."
+            gradientColors = [.purple, .pink]
+        } else if skipRatio >= 18.0 {
+            name = "The Critical Curator"
+            subtitle = "Selective Perfectionist"
+            description = "You have an extremely refined ear and zero tolerance for filler tracks. You actively curate your experience, skipping songs frequently to hear only absolute perfection."
+            gradientColors = [.cyan, .blue]
+        } else if variety >= 12.0 {
+            name = "The Eclectic Voyager"
+            subtitle = "Boundary-crossing Explorer"
+            description = "Your ears crave endless novelty. You collect a vast range of genres and artists, treating your music library as an open playground with no boundaries."
+            gradientColors = [.emerald, .teal]
+        } else {
+            name = "The Harmonious Listener"
+            subtitle = "Balanced Enthusiast"
+            description = "You have a perfectly balanced auditory profile. Your music distribution is smooth and versatile, seamlessly blending plays, skips, decades, and genres."
+            gradientColors = [.indigo, .purple]
+        }
+        
+        return PersonaProfile(
+            name: name, subtitle: subtitle, description: description,
+            nostalgiaIndex: nostalgia, varietyScore: variety, focusScore: focus, loyaltyScore: loyalty,
+            gradientColors: gradientColors
+        )
+    }
 }
+

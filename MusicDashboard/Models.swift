@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 
 // MARK: - Track Model
 struct Track: Codable, Identifiable, Hashable {
@@ -83,4 +84,27 @@ struct TimelineStat: Identifiable, Hashable {
     let date: Date
     let monthYearString: String // e.g., "Jan 2025"
     let count: Int
+}
+
+// MARK: - Advanced Analytics Models
+
+struct ArtistStat: Identifiable, Hashable {
+    let id = UUID()
+    let artist: String
+    let trackCount: Int
+    let totalPlays: Int
+    let averagePlaysPerTrack: Double
+    let totalSkips: Int
+    let engagementScore: Double // (plays / (plays + skips)) * 100
+}
+
+struct PersonaProfile: Hashable {
+    let name: String
+    let subtitle: String
+    let description: String
+    let nostalgiaIndex: Double // 0-100
+    let varietyScore: Double // 0-100
+    let focusScore: Double // 0-100
+    let loyaltyScore: Double // 0-100 (plays vs skips ratio)
+    let gradientColors: [Color] // Colors for dynamic glowing persona card
 }

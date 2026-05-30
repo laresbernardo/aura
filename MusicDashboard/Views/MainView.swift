@@ -8,6 +8,8 @@ struct MainView: View {
     enum Tab: String, CaseIterable {
         case overview = "Overview"
         case habits = "Listening Habits"
+        case artists = "Artist Hall"
+        case persona = "Aura Profile"
         case timeMachine = "Time Machine"
     }
     
@@ -97,97 +99,116 @@ struct MainView: View {
                 VStack(spacing: 14) {
                     Divider().background(Color.white.opacity(0.08))
                     
-                    // Demo Mode Toggle Row
-                    VStack(alignment: .leading, spacing: 8) {
+                    // Library Source Mode Picker Row
+                    VStack(alignment: .leading, spacing: 10) {
                         HStack {
                             VStack(alignment: .leading, spacing: 2) {
-                                Text(manager.isDemoMode ? "Demo Library" : "Live Connected")
+                                Text("Library Source")
                                     .font(.system(size: 10, weight: .bold))
                                     .foregroundColor(.white)
-                                Text(manager.isDemoMode ? "Preview Mode Active" : "Connected to Music.app")
+                                Text(manager.sourceModeDescription)
                                     .font(.system(size: 8))
                                     .foregroundColor(.secondary)
                             }
                             Spacer()
                             
-                            // Active Glowing Badge
                             Circle()
-                                .fill(manager.isDemoMode ? Color.purple : Color.emerald)
+                                .fill(manager.sourceModeColor)
                                 .frame(width: 8, height: 8)
-                                .shadow(color: manager.isDemoMode ? .purple : .emerald, radius: 4)
+                                .shadow(color: manager.sourceModeColor, radius: 4)
                         }
                         
-                        Toggle("", isOn: Binding(
-                            get: { manager.isDemoMode },
-                            set: { _ in manager.toggleMode() }
-                        ))
-                        .toggleStyle(SwitchToggleStyle(tint: .purple))
-                        .labelsHidden()
-                        .scaleEffect(0.85)
+                        Picker("", selection: Binding(
+                            get: { manager.sourceMode },
+                            set: { manager.changeSourceMode(to: $0) }
+                        )) {
+                            Text("Demo").tag(MusicLibraryManager.SourceMode.demo)
+                            Text("XML").tag(MusicLibraryManager.SourceMode.xml)
+                            Text("Direct").tag(MusicLibraryManager.SourceMode.direct)
+                        }
+                        .pickerStyle(.segmented)
+                        .scaleEffect(0.9)
+                        .padding(.horizontal, -4)
                     }
                     .padding(.horizontal, 12)
                     
-                    // Sync Operations
-                    if !manager.isDemoMode {
-                        Button(action: {
-                            Task { await manager.fetchLiveLibrary() }
-                        }) {
-                            HStack(spacing: 8) {
-                                if manager.isLoading {
-                                    ProgressView()
-                                        .controlSize(.small)
-                                        .scaleEffect(0.8)
-                                } else {
-                                    Image(systemName: "arrow.triangle.2.circlepath")
-                                        .font(.system(size: 11, weight: .semibold))
-                                        .rotationEffect(.degrees(manager.isLoading ? 360 : 0))
-                                        .animation(manager.isLoading ? .linear(duration: 1).repeatForever(autoreverses: false) : .default, value: manager.isLoading)
+                    // Operations per Connection Mode
+                    if manager.sourceMode != .demo {
+                        VStack(spacing: 8) {
+                            Button(action: {
+                                Task {
+                                    if manager.sourceMode == .xml {
+                                        await manager.fetchLiveLibrary()
+                                    } else {
+                                        await manager.fetchDirectLibrary()
+                                    }
                                 }
-                                
-                                Text(manager.isLoading ? "Syncing..." : "Sync Now")
-                                    .font(.caption)
-                                    .fontWeight(.bold)
+                            }) {
+                                HStack(spacing: 8) {
+                                    if manager.isLoading {
+                                        ProgressView()
+                                            .controlSize(.small)
+                                            .scaleEffect(0.8)
+                                    } else {
+                                        Image(systemName: "arrow.triangle.2.circlepath")
+                                            .font(.system(size: 11, weight: .semibold))
+                                    }
+                                    
+                                    Text(manager.isLoading ? "Syncing..." : "Sync Now")
+                                        .font(.caption)
+                                        .fontWeight(.bold)
+                                }
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 8)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .fill(isSyncButtonHovered ? Color.white.opacity(0.12) : Color.white.opacity(0.05))
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .stroke(Color.white.opacity(0.1), lineWidth: 1)
+                                )
                             }
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 8)
-                            .background(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .fill(isSyncButtonHovered ? Color.white.opacity(0.12) : Color.white.opacity(0.05))
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .stroke(Color.white.opacity(0.1), lineWidth: 1)
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .onHover { hovering in
-                            isSyncButtonHovered = hovering
+                            .buttonStyle(.plain)
+                            .onHover { hovering in
+                                isSyncButtonHovered = hovering
+                            }
+                            .disabled(manager.isLoading)
+                            
+                            if manager.sourceMode == .xml {
+                                Button(action: {
+                                    Task { await manager.selectXMLFileManually() }
+                                }) {
+                                    HStack(spacing: 6) {
+                                        Image(systemName: "doc.badge.plus")
+                                            .font(.system(size: 10))
+                                        Text("Change XML Source...")
+                                            .font(.system(size: 10, weight: .semibold))
+                                    }
+                                    .foregroundColor(.secondary)
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 6)
+                                    .background(Color.white.opacity(0.02))
+                                    .cornerRadius(6)
+                                }
+                                .buttonStyle(.plain)
+                                .disabled(manager.isLoading)
+                            }
                         }
                         .padding(.horizontal, 12)
-                        .disabled(manager.isLoading)
-                        
-                        Button(action: {
-                            Task { await manager.selectXMLFileManually() }
-                        }) {
-                            HStack(spacing: 6) {
-                                Image(systemName: "doc.badge.plus")
-                                    .font(.system(size: 10))
-                                Text("Change XML Source...")
-                                    .font(.system(size: 10, weight: .semibold))
-                            }
-                            .foregroundColor(.secondary)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 6)
-                            .background(Color.white.opacity(0.02))
-                            .cornerRadius(6)
-                        }
-                        .buttonStyle(.plain)
-                        .padding(.horizontal, 12)
-                        .padding(.top, 6)
-                        .disabled(manager.isLoading)
                     }
+                    
+                    // Application Version Footer
+                    HStack {
+                        Spacer()
+                        Text("Aura \(manager.appVersionString)")
+                            .font(.system(size: 8, design: .monospaced))
+                            .foregroundColor(.secondary.opacity(0.5))
+                        Spacer()
+                    }
+                    .padding(.top, 4)
                 }
-                .padding(.bottom, 20)
+                .padding(.bottom, 12)
             }
             .background(VisualEffectView(material: .sidebar, blendingMode: .behindWindow))
             .frame(minWidth: 220)
@@ -223,6 +244,10 @@ struct MainView: View {
                                 OverviewDashboardView(manager: manager)
                             case .habits:
                                 ListeningHabitsView(manager: manager)
+                            case .artists:
+                                ArtistHallView(manager: manager)
+                            case .persona:
+                                AuraProfileView(manager: manager)
                             case .timeMachine:
                                 TimeMachineView(manager: manager)
                             }
@@ -241,6 +266,8 @@ struct MainView: View {
         switch tab {
         case .overview: return "chart.bar.doc.horizontal.fill"
         case .habits: return "waveform.path.ecg.rectangle"
+        case .artists: return "person.3.sequence.fill"
+        case .persona: return "sparkles.rectangle.stack.fill"
         case .timeMachine: return "clock.arrow.2.circlepath"
         }
     }
