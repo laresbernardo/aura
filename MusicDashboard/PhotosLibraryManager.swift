@@ -3,6 +3,7 @@ import SwiftUI
 import Combine
 import AppKit
 import CoreLocation
+import Photos
 
 // MARK: - Photo Model
 struct Photo: Codable, Identifiable, Hashable {
@@ -100,15 +101,61 @@ class PhotosLibraryManager: ObservableObject {
     }
     
     @Published var photos: [Photo] = []
+    @Published var allPhotos: [Photo] = []
     @Published var isLoading: Bool = false
     @Published var syncError: String? = nil
+    @Published var syncStatus: String = ""
     @Published var sourceMode: SourceMode = .demo
     @Published var photosAppRunningState: PhotosAppState = .unknown
+    
+    @Published var currentFilter: TimeFilter = .allTime
+    @Published var customStartDate: Date = Calendar.current.date(byAdding: .month, value: -1, to: Date()) ?? Date()
+    @Published var customEndDate: Date = Date()
+    
+    var currentYearString: String {
+        "\(Calendar.current.component(.year, from: Date()))"
+    }
+    var previousYearString: String {
+        "\(Calendar.current.component(.year, from: Date()) - 1)"
+    }
+    var twoYearsAgoString: String {
+        "\(Calendar.current.component(.year, from: Date()) - 2)"
+    }
     
     private var geocodeTask: Task<Void, Never>? = nil
     
     init() {
         loadDemoLibrary()
+    }
+    
+    var availableYears: [Int] {
+        let cal = Calendar.current
+        let years = allPhotos.map { item -> Int in
+            cal.component(.year, from: item.capturedDate)
+        }
+        return Array(Set(years)).sorted(by: >)
+    }
+    
+    func applyFilter() {
+        let cal = Calendar.current
+        
+        switch currentFilter {
+        case .allTime:
+            self.photos = allPhotos
+        case .specificYear(let targetYear):
+            self.photos = allPhotos.filter { item in
+                let year = cal.component(.year, from: item.capturedDate)
+                return year == targetYear
+            }
+        case .customRange:
+            let startOfDay = cal.startOfDay(for: customStartDate)
+            let endOfDay = cal.date(bySettingHour: 23, minute: 59, second: 59, of: customEndDate) ?? customEndDate
+            
+            self.photos = allPhotos.filter { item in
+                let date = item.capturedDate
+                return date >= startOfDay && date <= endOfDay
+            }
+        }
     }
     
     // Switch between library sources
@@ -155,146 +202,94 @@ class PhotosLibraryManager: ObservableObject {
     func fetchDirectLibrary(forceLaunch: Bool = false) async {
         self.isLoading = true
         self.syncError = nil
+        self.syncStatus = "Requesting access to Photo Library..."
         
-        if !forceLaunch {
-            let isRunning = await checkIsPhotosAppRunning()
-            if !isRunning {
-                self.photosAppRunningState = .notRunning
-                self.isLoading = false
-                self.photos = []
-                self.syncError = "The Photos.app is not running. Please launch it to establish a direct connection."
-                return
-            }
+        let status = await PHPhotoLibrary.requestAuthorization(for: .readWrite)
+        guard status == .authorized || status == .limited else {
+            self.photosAppRunningState = .permissionDenied
+            self.syncError = "Photo Library access was denied. Please enable it in System Settings → Privacy & Security → Photos."
+            self.photos = []
+            self.syncStatus = ""
+            self.isLoading = false
+            return
         }
         
         self.photosAppRunningState = .running
+        self.syncStatus = "Fetching assets from PhotoKit..."
         
-        let jxaScript = #"""
-        (function() {
-            var app = Application("Photos");
-            if (!app.running()) {
-                return JSON.stringify({ "error": "Photos application is not running." });
-            }
+        let fetchResult = await Task.detached(priority: .userInitiated) { () -> PHFetchResult<PHAsset> in
+            let options = PHFetchOptions()
+            options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
+            // Cap at a highly responsive 3,000 photos for geocoding & rendering performance
+            options.fetchLimit = 3000
+            return PHAsset.fetchAssets(with: options)
+        }.value
+        
+        self.syncStatus = "Analyzing 3,000 most recent captures..."
+        
+        let manager = self
+        let fetchedPhotos = await Task.detached(priority: .userInitiated) { [manager] () -> [Photo] in
+            var list: [Photo] = []
+            let total = fetchResult.count
+            list.reserveCapacity(total)
             
-            var items;
-            try {
-                items = app.mediaItems;
-                if (!items) {
-                    return JSON.stringify({ "error": "Media items are unavailable." });
-                }
-            } catch(e) {
-                return JSON.stringify({ "error": "Could not access Photos Library. Please check automation permissions." });
-            }
-            
-            var count = 0;
-            try {
-                count = items.length;
-            } catch(e) {
-                return JSON.stringify({ "error": "Could not query media count. Permissions may be restricted." });
-            }
-            
-            if (count === 0) {
-                return JSON.stringify([]);
-            }
-            
-            var ids = [];
-            var filenames = [];
-            var dates = [];
-            var favorites = [];
-            var locations = [];
-            var altitudes = [];
-            var widths = [];
-            var heights = [];
-            
-            // JXA Bulk Retrieval to bypass IPC bottlenecks
-            try { ids = items.id(); } catch(e) {}
-            try { filenames = items.filename(); } catch(e) {}
-            try { dates = items.date(); } catch(e) {}
-            try { favorites = items.favorite(); } catch(e) {}
-            try { locations = items.location(); } catch(e) {}
-            try { altitudes = items.altitude(); } catch(e) {}
-            try { widths = items.width(); } catch(e) {}
-            try { heights = items.height(); } catch(e) {}
-            
-            var list = [];
-            var itemsCount = filenames.length;
-            // Cap at 4,000 photos to prevent slow JSON serialization inside osascript
-            var maxItems = Math.min(itemsCount, 4000);
-            
-            for (var i = 0; i < maxItems; i++) {
-                var dPhoto = dates[i];
-                var tPhoto = null;
-                if (dPhoto) {
-                    try {
-                        tPhoto = dPhoto.getTime ? dPhoto.getTime() / 1000 : new Date(dPhoto).getTime() / 1000;
-                    } catch(e) {}
+            fetchResult.enumerateObjects { (asset, index, stop) in
+                let id = asset.localIdentifier
+                
+                // Super fast filename lookup using KVC fallback
+                var filename = "IMG_\(index).jpg"
+                if let name = asset.value(forKey: "filename") as? String {
+                    filename = name
                 }
                 
-                var loc = locations[i];
-                var lat = null;
-                var lon = null;
-                if (loc && loc.length >= 2) {
-                    lat = loc[0];
-                    lon = loc[1];
-                }
+                let dateAdded = asset.creationDate?.timeIntervalSince1970 ?? Date().timeIntervalSince1970
+                let isFavorite = asset.isFavorite
                 
-                list.push({
-                    "id": ids[i] || ("id-" + i),
-                    "filename": filenames[i] || "Photo.jpg",
-                    "dateAdded": tPhoto || (new Date().getTime() / 1000),
-                    "isFavorite": favorites[i] || false,
-                    "latitude": lat,
-                    "longitude": lon,
-                    "altitude": altitudes[i] || 0.0,
-                    "width": widths[i] || 3000,
-                    "height": heights[i] || 2000
-                });
-            }
-            return JSON.stringify(list);
-        })();
-        """#
-        
-        let result = await runOsaScript(jxaScript)
-        
-        switch result {
-        case .success(let jsonString):
-            do {
-                let data = jsonString.data(using: .utf8) ?? Data()
+                let latitude = asset.location?.coordinate.latitude
+                let longitude = asset.location?.coordinate.longitude
+                let altitude = asset.location?.altitude
                 
-                if let errorDict = try? JSONSerialization.jsonObject(with: data) as? [String: String],
-                   let errorMessage = errorDict["error"] {
-                    self.syncError = errorMessage
-                    if errorMessage.contains("automation") || errorMessage.contains("Permissions") {
-                        self.photosAppRunningState = .permissionDenied
+                let width = asset.pixelWidth
+                let height = asset.pixelHeight
+                
+                let photo = Photo(
+                    id: id,
+                    filename: filename,
+                    dateAdded: dateAdded,
+                    latitude: latitude,
+                    longitude: longitude,
+                    altitude: altitude,
+                    width: width,
+                    height: height,
+                    isFavorite: isFavorite
+                )
+                list.append(photo)
+                
+                // Real-time progress updates to MainActor every 100 files
+                if index % 100 == 0 || index == total - 1 {
+                    Task { @MainActor in
+                        manager.syncStatus = "Analyzing captures (\(index + 1) of \(total))..."
                     }
-                    self.photos = []
-                    self.isLoading = false
-                    return
                 }
-                
-                let decoder = JSONDecoder()
-                let fetchedPhotos = try decoder.decode([Photo].self, from: data)
-                
-                if fetchedPhotos.isEmpty {
-                    self.syncError = "Your Photos library appears to be empty."
-                    self.photos = []
-                } else {
-                    self.photos = fetchedPhotos
-                    self.syncError = nil
-                    
-                    // Trigger asynchronous geocoding for coordinates
-                    startGeocoding()
-                }
-            } catch {
-                self.syncError = "Failed to parse Photos library. Details: \(error.localizedDescription)"
             }
-        case .failure(let error):
-            self.syncError = error.localizedDescription
-            if error.localizedDescription.contains("not allowed") || error.localizedDescription.contains("permission") {
-                self.photosAppRunningState = .permissionDenied
-            }
+            return list
+        }.value
+        
+        if fetchedPhotos.isEmpty {
+            self.syncError = "Your Photos library appears to be empty."
+            self.allPhotos = []
+            self.photos = []
+        } else {
+            self.syncStatus = "Resolving locations & altitudes..."
+            self.allPhotos = fetchedPhotos
+            self.applyFilter()
+            self.syncError = nil
+            
+            // Trigger asynchronous geocoding for coordinates
+            startGeocoding()
         }
         
+        self.syncStatus = ""
         self.isLoading = false
     }
     
@@ -541,7 +536,8 @@ class PhotosLibraryManager: ObservableObject {
             ))
         }
         
-        self.photos = mock
+        self.allPhotos = mock
+        self.applyFilter()
     }
     
     // MARK: - Computed Properties for Photography Analytics

@@ -404,49 +404,277 @@ struct MainView: View {
                             XMLErrorFallbackView(message: errorMsg, manager: manager)
                                 .transition(.opacity)
                         } else {
-                            Group {
-                                switch currentMusicTab {
-                                case .overview:
-                                    OverviewDashboardView(manager: manager)
-                                case .habits:
-                                    ListeningHabitsView(manager: manager)
-                                case .artists:
-                                    ArtistHallView(manager: manager)
-                                case .persona:
-                                    AuraProfileView(manager: manager)
-                                case .temporal:
-                                    TemporalRhythmsView(manager: manager)
-                                case .timeMachine:
-                                    TimeMachineView(manager: manager)
+                            VStack(spacing: 0) {
+                                // Music Date Filter Bar (Dynamic Horizontal Year Scrolling Bar)
+                                HStack(spacing: 12) {
+                                    Text("Time Range:")
+                                        .font(.system(size: 10, weight: .bold))
+                                        .foregroundColor(.secondary)
+                                        .textCase(.uppercase)
+                                        .padding(.leading, 28)
+                                    
+                                    ScrollView(.horizontal, showsIndicators: false) {
+                                        HStack(spacing: 6) {
+                                            // All Time Capsule
+                                            Button(action: {
+                                                manager.currentFilter = .allTime
+                                                manager.applyFilter()
+                                            }) {
+                                                Text("All Time")
+                                                    .font(.system(size: 11, weight: .semibold))
+                                                    .padding(.horizontal, 12)
+                                                    .padding(.vertical, 5)
+                                                    .background(manager.currentFilter == .allTime ? Color.purple.opacity(0.18) : Color.white.opacity(0.04))
+                                                    .foregroundColor(manager.currentFilter == .allTime ? .purple : .secondary)
+                                                    .cornerRadius(10)
+                                                    .overlay(
+                                                        RoundedRectangle(cornerRadius: 10)
+                                                            .stroke(manager.currentFilter == .allTime ? Color.purple.opacity(0.6) : Color.white.opacity(0.06), lineWidth: 1)
+                                                    )
+                                            }
+                                            .buttonStyle(.plain)
+                                            
+                                            // Dynamic Year Capsules
+                                            ForEach(manager.availableYears, id: \.self) { year in
+                                                let isSelected = manager.currentFilter == .specificYear(year)
+                                                Button(action: {
+                                                    manager.currentFilter = .specificYear(year)
+                                                    manager.applyFilter()
+                                                }) {
+                                                    Text(String(year))
+                                                        .font(.system(size: 11, weight: .semibold))
+                                                        .padding(.horizontal, 12)
+                                                        .padding(.vertical, 5)
+                                                        .background(isSelected ? Color.purple.opacity(0.18) : Color.white.opacity(0.04))
+                                                        .foregroundColor(isSelected ? .purple : .secondary)
+                                                        .cornerRadius(10)
+                                                        .overlay(
+                                                            RoundedRectangle(cornerRadius: 10)
+                                                                .stroke(isSelected ? Color.purple.opacity(0.6) : Color.white.opacity(0.06), lineWidth: 1)
+                                                        )
+                                                }
+                                                .buttonStyle(.plain)
+                                            }
+                                            
+                                            // Custom Range Capsule
+                                            Button(action: {
+                                                manager.currentFilter = .customRange
+                                                manager.applyFilter()
+                                            }) {
+                                                Text("Custom")
+                                                    .font(.system(size: 11, weight: .semibold))
+                                                    .padding(.horizontal, 12)
+                                                    .padding(.vertical, 5)
+                                                    .background(manager.currentFilter == .customRange ? Color.purple.opacity(0.18) : Color.white.opacity(0.04))
+                                                    .foregroundColor(manager.currentFilter == .customRange ? .purple : .secondary)
+                                                    .cornerRadius(10)
+                                                    .overlay(
+                                                        RoundedRectangle(cornerRadius: 10)
+                                                            .stroke(manager.currentFilter == .customRange ? Color.purple.opacity(0.6) : Color.white.opacity(0.06), lineWidth: 1)
+                                                    )
+                                            }
+                                            .buttonStyle(.plain)
+                                        }
+                                        .padding(.vertical, 4)
+                                    }
+                                    Spacer()
+                                    
+                                    if manager.currentFilter == .customRange {
+                                        HStack(spacing: 6) {
+                                            DatePicker("", selection: Binding(
+                                                get: { manager.customStartDate },
+                                                set: { newValue in
+                                                    manager.customStartDate = newValue
+                                                    manager.applyFilter()
+                                                }
+                                            ), displayedComponents: .date)
+                                            .labelsHidden()
+                                            .controlSize(.small)
+                                            .scaleEffect(0.85)
+                                            .frame(width: 90)
+                                            
+                                            Text("to")
+                                                .font(.caption2)
+                                                .foregroundColor(.secondary)
+                                            
+                                            DatePicker("", selection: Binding(
+                                                get: { manager.customEndDate },
+                                                set: { newValue in
+                                                    manager.customEndDate = newValue
+                                                    manager.applyFilter()
+                                                }
+                                            ), displayedComponents: .date)
+                                            .labelsHidden()
+                                            .controlSize(.small)
+                                            .scaleEffect(0.85)
+                                            .frame(width: 90)
+                                        }
+                                        .transition(.move(edge: .trailing).combined(with: .opacity))
+                                    }
                                 }
+                                .padding(.horizontal, 28)
+                                .padding(.top, 20)
+                                .padding(.bottom, 6)
+                                
+                                Group {
+                                    switch currentMusicTab {
+                                    case .overview:
+                                        OverviewDashboardView(manager: manager)
+                                    case .habits:
+                                        ListeningHabitsView(manager: manager)
+                                    case .artists:
+                                        ArtistHallView(manager: manager)
+                                    case .persona:
+                                        AuraProfileView(manager: manager)
+                                    case .temporal:
+                                        TemporalRhythmsView(manager: manager)
+                                    case .timeMachine:
+                                        TimeMachineView(manager: manager)
+                                    }
+                                }
+                                .padding(.horizontal, 28)
+                                .padding(.bottom, 28)
+                                .transition(.asymmetric(insertion: .opacity.combined(with: .move(edge: .bottom)), removal: .opacity))
                             }
-                            .padding(28)
-                            .transition(.asymmetric(insertion: .opacity.combined(with: .move(edge: .bottom)), removal: .opacity))
                         }
                     } else {
                         // PHOTOS MODE DETAIL VIEWPORT
                         if photosManager.sourceMode == .direct && photosManager.isLoading {
-                            ProgressView("Reading Photos library…")
+                            ProgressView(photosManager.syncStatus.isEmpty ? "Reading Photos library…" : photosManager.syncStatus)
                                 .foregroundColor(.secondary)
                                 .transition(.opacity)
                         } else if photosManager.sourceMode == .direct, let errorMsg = photosManager.syncError {
                             PhotosErrorFallbackView(message: errorMsg, manager: photosManager)
                                 .transition(.opacity)
                         } else {
-                            Group {
-                                switch currentPhotosTab {
-                                case .photosOverview:
-                                    PhotosOverviewView(manager: photosManager)
-                                case .photosBehavior:
-                                    PhotosBehaviorView(manager: photosManager)
-                                case .photosPlaces:
-                                    PhotosPlacesView(manager: photosManager)
-                                case .photosAura:
-                                    PhotosAuraView(manager: photosManager)
+                            VStack(spacing: 0) {
+                                // Photos Date Filter Bar (Dynamic Horizontal Year Scrolling Bar)
+                                HStack(spacing: 12) {
+                                    Text("Time Range:")
+                                        .font(.system(size: 10, weight: .bold))
+                                        .foregroundColor(.secondary)
+                                        .textCase(.uppercase)
+                                        .padding(.leading, 28)
+                                    
+                                    ScrollView(.horizontal, showsIndicators: false) {
+                                        HStack(spacing: 6) {
+                                            // All Time Capsule
+                                            Button(action: {
+                                                photosManager.currentFilter = .allTime
+                                                photosManager.applyFilter()
+                                            }) {
+                                                Text("All Time")
+                                                    .font(.system(size: 11, weight: .semibold))
+                                                    .padding(.horizontal, 12)
+                                                    .padding(.vertical, 5)
+                                                    .background(photosManager.currentFilter == .allTime ? Color.emerald.opacity(0.18) : Color.white.opacity(0.04))
+                                                    .foregroundColor(photosManager.currentFilter == .allTime ? .emerald : .secondary)
+                                                    .cornerRadius(10)
+                                                    .overlay(
+                                                        RoundedRectangle(cornerRadius: 10)
+                                                            .stroke(photosManager.currentFilter == .allTime ? Color.emerald.opacity(0.6) : Color.white.opacity(0.06), lineWidth: 1)
+                                                    )
+                                            }
+                                            .buttonStyle(.plain)
+                                            
+                                            // Dynamic Year Capsules
+                                            ForEach(photosManager.availableYears, id: \.self) { year in
+                                                let isSelected = photosManager.currentFilter == .specificYear(year)
+                                                Button(action: {
+                                                    photosManager.currentFilter = .specificYear(year)
+                                                    photosManager.applyFilter()
+                                                }) {
+                                                    Text(String(year))
+                                                        .font(.system(size: 11, weight: .semibold))
+                                                        .padding(.horizontal, 12)
+                                                        .padding(.vertical, 5)
+                                                        .background(isSelected ? Color.emerald.opacity(0.18) : Color.white.opacity(0.04))
+                                                        .foregroundColor(isSelected ? .emerald : .secondary)
+                                                        .cornerRadius(10)
+                                                        .overlay(
+                                                            RoundedRectangle(cornerRadius: 10)
+                                                                .stroke(isSelected ? Color.emerald.opacity(0.6) : Color.white.opacity(0.06), lineWidth: 1)
+                                                        )
+                                                }
+                                                .buttonStyle(.plain)
+                                            }
+                                            
+                                            // Custom Range Capsule
+                                            Button(action: {
+                                                photosManager.currentFilter = .customRange
+                                                photosManager.applyFilter()
+                                            }) {
+                                                Text("Custom")
+                                                    .font(.system(size: 11, weight: .semibold))
+                                                    .padding(.horizontal, 12)
+                                                    .padding(.vertical, 5)
+                                                    .background(photosManager.currentFilter == .customRange ? Color.emerald.opacity(0.18) : Color.white.opacity(0.04))
+                                                    .foregroundColor(photosManager.currentFilter == .customRange ? .emerald : .secondary)
+                                                    .cornerRadius(10)
+                                                    .overlay(
+                                                        RoundedRectangle(cornerRadius: 10)
+                                                            .stroke(photosManager.currentFilter == .customRange ? Color.emerald.opacity(0.6) : Color.white.opacity(0.06), lineWidth: 1)
+                                                    )
+                                            }
+                                            .buttonStyle(.plain)
+                                        }
+                                        .padding(.vertical, 4)
+                                    }
+                                    Spacer()
+                                    
+                                    if photosManager.currentFilter == .customRange {
+                                        HStack(spacing: 6) {
+                                            DatePicker("", selection: Binding(
+                                                get: { photosManager.customStartDate },
+                                                set: { newValue in
+                                                    photosManager.customStartDate = newValue
+                                                    photosManager.applyFilter()
+                                                }
+                                            ), displayedComponents: .date)
+                                            .labelsHidden()
+                                            .controlSize(.small)
+                                            .scaleEffect(0.85)
+                                            .frame(width: 90)
+                                            
+                                            Text("to")
+                                                .font(.caption2)
+                                                .foregroundColor(.secondary)
+                                            
+                                            DatePicker("", selection: Binding(
+                                                get: { photosManager.customEndDate },
+                                                set: { newValue in
+                                                    photosManager.customEndDate = newValue
+                                                    photosManager.applyFilter()
+                                                }
+                                            ), displayedComponents: .date)
+                                            .labelsHidden()
+                                            .controlSize(.small)
+                                            .scaleEffect(0.85)
+                                            .frame(width: 90)
+                                        }
+                                        .transition(.move(edge: .trailing).combined(with: .opacity))
+                                    }
                                 }
+                                .padding(.horizontal, 28)
+                                .padding(.top, 20)
+                                .padding(.bottom, 6)
+                                
+                                Group {
+                                    switch currentPhotosTab {
+                                    case .photosOverview:
+                                        PhotosOverviewView(manager: photosManager)
+                                    case .photosBehavior:
+                                        PhotosBehaviorView(manager: photosManager)
+                                    case .photosPlaces:
+                                        PhotosPlacesView(manager: photosManager)
+                                    case .photosAura:
+                                        PhotosAuraView(manager: photosManager)
+                                    }
+                                }
+                                .padding(.horizontal, 28)
+                                .padding(.bottom, 28)
+                                .transition(.asymmetric(insertion: .opacity.combined(with: .move(edge: .bottom)), removal: .opacity))
                             }
-                            .padding(28)
-                            .transition(.asymmetric(insertion: .opacity.combined(with: .move(edge: .bottom)), removal: .opacity))
                         }
                     }
                 }

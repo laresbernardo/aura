@@ -130,17 +130,13 @@ struct TemporalStat: Identifiable, Hashable {
 // MARK: - Time Filtering Models
 enum TimeFilter: Hashable, Identifiable {
     case allTime
-    case currentYear
-    case previousYear
-    case twoYearsAgo
+    case specificYear(Int)
     case customRange
     
     var id: String {
         switch self {
         case .allTime: return "allTime"
-        case .currentYear: return "currentYear"
-        case .previousYear: return "previousYear"
-        case .twoYearsAgo: return "twoYearsAgo"
+        case .specificYear(let y): return "year-\(y)"
         case .customRange: return "customRange"
         }
     }

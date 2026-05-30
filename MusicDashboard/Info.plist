@@ -17,12 +17,16 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.0.14</string>
+	<string>1.0.25</string>
 	<key>CFBundleVersion</key>
-	<string>15</string>
+	<string>26</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>13.0</string>
 	<key>NSAppleEventsUsageDescription</key>
 	<string>Aura requires permissions to automate the macOS Music app to fetch song statistics and build your personal dashboard.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Aura requires permission to access photo metadata to build your personal photography dashboard.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Aura requires access to your Photo Library to fetch capture dates, camera models, and locations for your personal dashboard.</string>
 </dict>
 </plist>

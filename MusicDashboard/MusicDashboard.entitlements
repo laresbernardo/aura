@@ -9,5 +9,9 @@
     <!-- Allows JXA automation scripting of the Music app (fallback path) -->
     <key>com.apple.security.automation.apple-events</key>
     <true/>
+
+    <!-- Allows reading the user's Apple Photo Library via PhotoKit -->
+    <key>com.apple.security.personal-information.photos-library</key>
+    <true/>
 </dict>
 </plist>
