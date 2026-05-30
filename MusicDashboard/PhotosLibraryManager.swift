@@ -12,7 +12,7 @@ struct Photo: Codable, Identifiable, Hashable {
     let dateAdded: Double // Unix Timestamp
     let latitude: Double?
     let longitude: Double?
-    let altitude: Double?
+    var altitude: Double?
     let width: Int
     let height: Int
     let isFavorite: Bool
@@ -136,7 +136,17 @@ class PhotosLibraryManager: ObservableObject {
         guard FileManager.default.fileExists(atPath: cacheURL.path) else { return }
         do {
             let data = try Data(contentsOf: cacheURL)
-            let cached = try JSONDecoder().decode([Photo].self, from: data)
+            var cached = try JSONDecoder().decode([Photo].self, from: data)
+            
+            // Clean altitudes to ensure only valid land-level elevations are cataloged
+            for idx in 0..<cached.count {
+                if let alt = cached[idx].altitude {
+                    if abs(alt) < 0.01 || alt < -100.0 || alt > 8500.0 {
+                        cached[idx].altitude = nil
+                    }
+                }
+            }
+            
             if !cached.isEmpty {
                 self.allPhotos = cached
                 self.applyFilter()
@@ -287,7 +297,16 @@ class PhotosLibraryManager: ObservableObject {
                 
                 let latitude = asset.location?.coordinate.latitude
                 let longitude = asset.location?.coordinate.longitude
-                let altitude = asset.location?.altitude
+                
+                var altitude: Double? = nil
+                if let loc = asset.location {
+                    if loc.verticalAccuracy >= 0 {
+                        let rawAlt = loc.altitude
+                        if abs(rawAlt) > 0.01 && rawAlt >= -100.0 && rawAlt <= 8500.0 {
+                            altitude = rawAlt
+                        }
+                    }
+                }
                 
                 let width = asset.pixelWidth
                 let height = asset.pixelHeight
@@ -862,7 +881,11 @@ class PhotosLibraryManager: ObservableObject {
     let altitudeProfileLabels = ["< 20 m", "20 m - 100 m", "100 m - 500 m", "> 500 m"]
     
     var maxAltitudePhoto: Photo? {
-        return photos.filter { $0.altitude != nil }.max(by: { ($0.altitude ?? 0.0) < ($1.altitude ?? 0.0) })
+        let validPhotos = photos.filter { photo in
+            guard let alt = photo.altitude else { return false }
+            return abs(alt) > 0.01 && alt >= -100.0 && alt <= 8500.0
+        }
+        return validPhotos.max(by: { ($0.altitude ?? 0.0) < ($1.altitude ?? 0.0) })
     }
     
     private var altitudeNumberFormatter: NumberFormatter {
@@ -966,6 +989,11 @@ class PhotosLibraryManager: ObservableObject {
         
         for item in photos {
             guard let alt = item.altitude else { continue }
+            // Ignore placeholders, negative GPS noise, and cruising airplane flights
+            if abs(alt) < 0.01 || alt < -100.0 || alt > 8500.0 {
+                continue
+            }
+            
             if alt < 20.0 {
                 seaLevel += 1
             } else if alt < 100.0 {
