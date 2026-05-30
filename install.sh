@@ -103,6 +103,9 @@ if [ -f "$ICON_SOURCE" ]; then
     sips -z 1024 1024 "$ICON_SOURCE" --out "$ICONSET/icon_512x512@2x.png"> /dev/null
     iconutil -c icns "$ICONSET" -o "$APP_BUNDLE/Contents/Resources/AppIcon.icns"
     cp "$ICON_SOURCE" "$APP_BUNDLE/Contents/Resources/AppIcon.png"
+    if [ -f "$SOURCE_DIR/MusicDashboard/BervosLogo.png" ]; then
+        cp "$SOURCE_DIR/MusicDashboard/BervosLogo.png" "$APP_BUNDLE/Contents/Resources/BervosLogo.png"
+    fi
     echo -e "${GREEN}✓ App icon generated and bundled.${NC}"
 fi
 

@@ -72,3 +72,16 @@ If macOS blocks the app as "unverified developer" (only relevant if you share th
 2. Find the blocked Aura entry and click **Open Anyway**.
 
 The `./install.sh` script installs directly to `/Applications` using `xattr -cr` to clear quarantine, so this warning should not appear for local builds.
+
+---
+
+## ⚡ Credits
+
+Aura is developed by **[BERVOS](https://bervos.org)**.
+
+<p align="center">
+  <a href="https://bervos.org">
+    <img src="MusicDashboard/BervosLogo.png" alt="BERVOS Logo" width="120" />
+  </a>
+</p>
+

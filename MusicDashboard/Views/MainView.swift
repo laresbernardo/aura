@@ -199,13 +199,37 @@ struct MainView: View {
                         .padding(.horizontal, 12)
                     }
                     
-                    // Application Version Footer
-                    HStack {
-                        Spacer()
-                        Text("Aura \(manager.appVersionString)")
-                            .font(.system(size: 8, design: .monospaced))
-                            .foregroundColor(.secondary.opacity(0.5))
-                        Spacer()
+                    // Application Version & Credits Footer
+                    VStack(spacing: 6) {
+                        HStack {
+                            Spacer()
+                            Text("Aura \(manager.appVersionString)")
+                                .font(.system(size: 8, design: .monospaced))
+                                .foregroundColor(.secondary.opacity(0.5))
+                            Spacer()
+                        }
+                        
+                        Button(action: {
+                            if let url = URL(string: "https://bervos.org") {
+                                NSWorkspace.shared.open(url)
+                            }
+                        }) {
+                            HStack(spacing: 6) {
+                                if let logoURL = Bundle.main.url(forResource: "BervosLogo", withExtension: "png"),
+                                   let nsImage = NSImage(contentsOf: logoURL) {
+                                    Image(nsImage: nsImage)
+                                        .resizable()
+                                        .scaledToFit()
+                                        .frame(width: 14, height: 14)
+                                        .colorMultiply(.white.opacity(0.7))
+                                }
+                                
+                                Text("by BERVOS")
+                                    .font(.system(size: 9, weight: .bold, design: .rounded))
+                                    .foregroundColor(.secondary.opacity(0.7))
+                            }
+                        }
+                        .buttonStyle(.plain)
                     }
                     .padding(.top, 4)
                 }
