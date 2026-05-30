@@ -5,6 +5,9 @@ struct ListeningHabitsView: View {
     @ObservedObject var manager: MusicLibraryManager
     @State private var selectedTrack: Track?
     
+    @State private var isDetailTitleHovered = false
+    @State private var isDetailArtistHovered = false
+    
     var body: some View {
         ScrollView(.vertical, showsIndicators: false) {
             VStack(alignment: .leading, spacing: 28) {
@@ -110,13 +113,27 @@ struct ListeningHabitsView: View {
                                         VStack(alignment: .leading, spacing: 6) {
                                             Text(selected.name)
                                                 .font(.system(size: 13, weight: .bold))
-                                                .foregroundColor(.white)
+                                                .foregroundColor(isDetailTitleHovered ? .purple : .white)
                                                 .lineLimit(1)
+                                                .onHover { isDetailTitleHovered = $0 }
+                                                .onTapGesture {
+                                                    Task {
+                                                        await manager.revealTrackInMusicApp(name: selected.name, artist: selected.artist)
+                                                    }
+                                                }
+                                                .help("Click to play in macOS Music")
                                             
                                             Text(selected.artist)
                                                 .font(.caption)
-                                                .foregroundColor(.secondary)
+                                                .foregroundColor(isDetailArtistHovered ? .purple : .secondary)
                                                 .lineLimit(1)
+                                                .onHover { isDetailArtistHovered = $0 }
+                                                .onTapGesture {
+                                                    Task {
+                                                        await manager.filterArtistInMusicApp(artist: selected.artist)
+                                                    }
+                                                }
+                                                .help("Click to filter by \(selected.artist) in macOS Music")
                                             
                                             HStack(spacing: 12) {
                                                 Text("Plays: \(selected.playCount)")
@@ -173,17 +190,30 @@ struct ListeningHabitsView: View {
                 // MARK: - Forgotten Gems Section
                 GlassCard {
                     VStack(alignment: .leading, spacing: 16) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            HStack {
-                                Image(systemName: "sparkles")
-                                    .foregroundColor(.yellow)
-                                Text("Forgotten Gems")
-                                    .font(.headline)
-                                    .foregroundColor(.white)
+                        HStack(alignment: .top) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack {
+                                    Image(systemName: "sparkles")
+                                        .foregroundColor(.yellow)
+                                    Text("Forgotten Gems")
+                                        .font(.headline)
+                                        .foregroundColor(.white)
+                                }
+                                Text("Tracks rated 4-5 stars that you haven't played in over 2 years. Rediscover them!")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
                             }
-                            Text("Tracks rated 4-5 stars that you haven't played in over 2 years. Rediscover them!")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
+                            Spacer()
+                            
+                            if !manager.forgottenGems.isEmpty {
+                                PlaylistActionButton(
+                                    title: "Create Playlist",
+                                    icon: "music.note.list",
+                                    actionName: "Aura - Forgotten Gems",
+                                    tracks: manager.forgottenGems,
+                                    manager: manager
+                                )
+                            }
                         }
                         
                         if manager.forgottenGems.isEmpty {
@@ -206,7 +236,7 @@ struct ListeningHabitsView: View {
                                 ScrollView(.vertical, showsIndicators: false) {
                                     VStack(spacing: 0) {
                                         ForEach(manager.forgottenGems.prefix(15)) { track in
-                                            TableRowView(track: track)
+                                            TableRowView(track: track, manager: manager)
                                             Divider().background(Color.white.opacity(0.04))
                                         }
                                     }
@@ -222,17 +252,30 @@ struct ListeningHabitsView: View {
                 // MARK: - Love-Hate Paradox (Nostalgic Burnout)
                 GlassCard {
                     VStack(alignment: .leading, spacing: 16) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            HStack {
-                                Image(systemName: "heart.slash.fill")
-                                    .foregroundColor(.red)
-                                Text("The Love-Hate Paradox")
-                                    .font(.headline)
-                                    .foregroundColor(.white)
+                        HStack(alignment: .top) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack {
+                                    Image(systemName: "heart.slash.fill")
+                                        .foregroundColor(.red)
+                                    Text("The Love-Hate Paradox")
+                                        .font(.headline)
+                                        .foregroundColor(.white)
+                                }
+                                Text("Tracks you love (high rating or plays) but skip frequently. Is it nostalgic burnout?")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
                             }
-                            Text("Tracks you love (high rating or plays) but skip frequently. Is it nostalgic burnout?")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
+                            Spacer()
+                            
+                            if !manager.loveHateParadox.isEmpty {
+                                PlaylistActionButton(
+                                    title: "Create Playlist",
+                                    icon: "music.note.list",
+                                    actionName: "Aura - Love-Hate Paradox",
+                                    tracks: manager.loveHateParadox,
+                                    manager: manager
+                                )
+                            }
                         }
                         
                         if manager.loveHateParadox.isEmpty {
@@ -268,7 +311,7 @@ struct ListeningHabitsView: View {
                                 ScrollView(.vertical, showsIndicators: false) {
                                     VStack(spacing: 0) {
                                         ForEach(manager.loveHateParadox.prefix(15)) { track in
-                                            LoveHateRowView(track: track)
+                                            LoveHateRowView(track: track, manager: manager)
                                             Divider().background(Color.white.opacity(0.04))
                                         }
                                     }
@@ -442,6 +485,9 @@ struct TableHeaderRow: View {
 
 struct TableRowView: View {
     let track: Track
+    @ObservedObject var manager: MusicLibraryManager
+    @State private var isHovered = false
+    @State private var isGenreHovered = false
     
     var body: some View {
         HStack {
@@ -449,17 +495,33 @@ struct TableRowView: View {
                 Text(track.name)
                     .font(.caption)
                     .fontWeight(.bold)
-                    .foregroundColor(.white)
+                    .foregroundColor(isHovered ? .purple : .white)
+                    .lineLimit(1)
+                
                 Text(track.artist)
                     .font(.system(size: 10))
                     .foregroundColor(.secondary)
+                    .lineLimit(1)
+                    .onTapGesture {
+                        Task {
+                            await manager.filterArtistInMusicApp(artist: track.artist)
+                        }
+                    }
+                    .help("Click to filter by \(track.artist) in macOS Music")
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             
             Text(track.genre)
                 .font(.caption)
-                .foregroundColor(.secondary)
+                .foregroundColor(isGenreHovered ? .purple : .secondary)
                 .frame(width: 100, alignment: .leading)
+                .onTapGesture {
+                    Task {
+                        await manager.filterGenreInMusicApp(genre: track.genre)
+                    }
+                }
+                .onHover { isGenreHovered = $0 }
+                .help("Click to filter genre '\(track.genre)' in macOS Music")
             
             StarsView(stars: track.ratingStars)
                 .frame(width: 80, alignment: .center)
@@ -471,7 +533,15 @@ struct TableRowView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
+        .background(isHovered ? Color.white.opacity(0.04) : Color.clear)
         .contentShape(Rectangle())
+        .onHover { isHovered = $0 }
+        .onTapGesture {
+            Task {
+                await manager.revealTrackInMusicApp(name: track.name, artist: track.artist)
+            }
+        }
+        .help("Click to reveal track in macOS Music")
     }
     
     private var lastPlayedFormatted: String {
@@ -485,6 +555,9 @@ struct TableRowView: View {
 
 struct LoveHateRowView: View {
     let track: Track
+    @ObservedObject var manager: MusicLibraryManager
+    @State private var isHovered = false
+    @State private var isGenreHovered = false
     
     var body: some View {
         HStack {
@@ -492,17 +565,33 @@ struct LoveHateRowView: View {
                 Text(track.name)
                     .font(.caption)
                     .fontWeight(.bold)
-                    .foregroundColor(.white)
+                    .foregroundColor(isHovered ? .purple : .white)
+                    .lineLimit(1)
+                
                 Text(track.artist)
                     .font(.system(size: 10))
                     .foregroundColor(.secondary)
+                    .lineLimit(1)
+                    .onTapGesture {
+                        Task {
+                            await manager.filterArtistInMusicApp(artist: track.artist)
+                        }
+                    }
+                    .help("Click to filter by \(track.artist) in macOS Music")
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             
             Text(track.genre)
                 .font(.caption)
-                .foregroundColor(.secondary)
+                .foregroundColor(isGenreHovered ? .purple : .secondary)
                 .frame(width: 100, alignment: .leading)
+                .onTapGesture {
+                    Task {
+                        await manager.filterGenreInMusicApp(genre: track.genre)
+                    }
+                }
+                .onHover { isGenreHovered = $0 }
+                .help("Click to filter genre '\(track.genre)' in macOS Music")
             
             HStack(spacing: 4) {
                 StarsView(stars: track.ratingStars)
@@ -526,6 +615,91 @@ struct LoveHateRowView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
+        .background(isHovered ? Color.white.opacity(0.04) : Color.clear)
         .contentShape(Rectangle())
+        .onHover { isHovered = $0 }
+        .onTapGesture {
+            Task {
+                await manager.revealTrackInMusicApp(name: track.name, artist: track.artist)
+            }
+        }
+        .help("Click to reveal track in macOS Music")
+    }
+}
+
+struct PlaylistActionButton: View {
+    let title: String
+    let icon: String
+    let actionName: String
+    let tracks: [Track]
+    @ObservedObject var manager: MusicLibraryManager
+    
+    @State private var syncState: SyncState = .idle
+    @State private var isHovered = false
+    
+    enum SyncState {
+        case idle, running, success, failure
+    }
+    
+    var body: some View {
+        Button(action: {
+            guard syncState == .idle else { return }
+            syncState = .running
+            Task {
+                let ok = await manager.createPlaylistInMusicApp(named: actionName, withTracks: tracks)
+                withAnimation {
+                    syncState = ok ? .success : .failure
+                }
+                if ok {
+                    try? await Task.sleep(nanoseconds: 3_000_000_000)
+                    withAnimation {
+                        syncState = .idle
+                    }
+                }
+            }
+        }) {
+            HStack(spacing: 6) {
+                switch syncState {
+                case .idle:
+                    Image(systemName: icon)
+                        .font(.system(size: 10, weight: .bold))
+                    Text(title)
+                        .font(.system(size: 10, weight: .bold))
+                case .running:
+                    ProgressView()
+                        .controlSize(.small)
+                        .scaleEffect(0.6)
+                    Text("Creating...")
+                        .font(.system(size: 10, weight: .bold))
+                case .success:
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundColor(.emerald)
+                        .font(.system(size: 10, weight: .bold))
+                    Text("Playlist Created!")
+                        .foregroundColor(.emerald)
+                        .font(.system(size: 10, weight: .bold))
+                case .failure:
+                    Image(systemName: "exclamationmark.circle.fill")
+                        .foregroundColor(.red)
+                        .font(.system(size: 10, weight: .bold))
+                    Text("Failed")
+                        .foregroundColor(.red)
+                        .font(.system(size: 10, weight: .bold))
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(isHovered ? Color.white.opacity(0.12) : Color.white.opacity(0.06))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 6)
+                    .stroke(Color.white.opacity(0.08), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+        .disabled(syncState == .running)
     }
 }

@@ -313,6 +313,120 @@ class MusicLibraryManager: ObservableObject {
         }.value
     }
 
+    // MARK: - Native Music App Control Actions
+    
+    func revealTrackInMusicApp(name: String, artist: String) async {
+        let cleanName = name.replacingOccurrences(of: "\"", with: "\\\"")
+        let cleanArtist = artist.replacingOccurrences(of: "\"", with: "\\\"")
+        
+        let jxaScript = """
+        (function() {
+            var app = Application("Music");
+            app.activate();
+            var matches = app.libraryPlaylists[0].tracks.whose({ name: "\(cleanName)", artist: "\(cleanArtist)" });
+            if (matches.length > 0) {
+                matches[0].reveal();
+                matches[0].play();
+            }
+        })();
+        """
+        _ = await runOsaScript(jxaScript)
+    }
+    
+    func filterArtistInMusicApp(artist: String) async {
+        let cleanArtist = artist.replacingOccurrences(of: "\"", with: "\\\"")
+        let jxaScript = """
+        (function() {
+            var app = Application("Music");
+            app.activate();
+            var matches = app.libraryPlaylists[0].tracks.whose({ artist: "\(cleanArtist)" });
+            if (matches.length > 0) {
+                matches[0].reveal();
+            }
+        })();
+        """
+        _ = await runOsaScript(jxaScript)
+    }
+    
+    func filterGenreInMusicApp(genre: String) async {
+        let cleanGenre = genre.replacingOccurrences(of: "\"", with: "\\\"")
+        let jxaScript = """
+        (function() {
+            var app = Application("Music");
+            app.activate();
+            var matches = app.libraryPlaylists[0].tracks.whose({ genre: "\(cleanGenre)" });
+            if (matches.length > 0) {
+                matches[0].reveal();
+            }
+        })();
+        """
+        _ = await runOsaScript(jxaScript)
+    }
+    
+    @discardableResult
+    func createPlaylistInMusicApp(named name: String, withTracks tracksToSync: [Track]) async -> Bool {
+        guard !tracksToSync.isEmpty else { return false }
+        
+        let jxaTracks = tracksToSync.map { track in
+            let cleanName = track.name.replacingOccurrences(of: "\"", with: "\\\"")
+            let cleanArtist = track.artist.replacingOccurrences(of: "\"", with: "\\\"")
+            return "{ name: \"\(cleanName)\", artist: \"\(cleanArtist)\" }"
+        }.joined(separator: ", ")
+        
+        let jxaScript = """
+        (function() {
+            var app = Application("Music");
+            if (!app.running()) {
+                app.activate();
+                delay(1);
+            }
+            
+            var playlistName = "\(name)";
+            var tracksToFind = [\(jxaTracks)];
+            
+            try {
+                var p = app.userPlaylists.whose({ name: playlistName });
+                if (p.length > 0) {
+                    p[0].delete();
+                }
+            } catch(e) {}
+            
+            var newPlaylist;
+            try {
+                newPlaylist = app.make({ new: "userPlaylist", withProperties: { name: playlistName } });
+            } catch(e) {
+                newPlaylist = app.UserPlaylist({ name: playlistName });
+                newPlaylist.make();
+            }
+            
+            var library = app.libraryPlaylists[0];
+            var allTracks = library.tracks;
+            
+            var count = 0;
+            for (var i = 0; i < tracksToFind.length; i++) {
+                var target = tracksToFind[i];
+                try {
+                    var matches = allTracks.whose({ name: target.name, artist: target.artist });
+                    if (matches.length > 0) {
+                        matches[0].duplicate({ to: newPlaylist });
+                        count++;
+                    }
+                } catch(e) {}
+            }
+            return "success: " + count;
+        })();
+        """
+        
+        let result = await runOsaScript(jxaScript)
+        switch result {
+        case .success(let val):
+            return val.contains("success")
+        case .failure:
+            return false
+        }
+    }
+
+
     // MARK: - Manual XML Selection File Dialog
     
     func selectXMLFileManually() async {

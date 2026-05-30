@@ -46,7 +46,12 @@ struct OverviewDashboardView: View {
                         value: manager.topArtist,
                         subtitle: "By cumulative plays",
                         icon: "person.wave.2.fill",
-                        gradient: LinearGradient(colors: [Color.orange, Color.red], startPoint: .topLeading, endPoint: .bottomTrailing)
+                        gradient: LinearGradient(colors: [Color.orange, Color.red], startPoint: .topLeading, endPoint: .bottomTrailing),
+                        action: {
+                            Task {
+                                await manager.filterArtistInMusicApp(artist: manager.topArtist)
+                            }
+                        }
                     )
                     
                     // Metric 4: Top Genre (Bonus Metric)
@@ -55,7 +60,12 @@ struct OverviewDashboardView: View {
                         value: manager.topGenre,
                         subtitle: "Most popular style",
                         icon: "tag.fill",
-                        gradient: LinearGradient(colors: [Color.emerald, Color.teal], startPoint: .topLeading, endPoint: .bottomTrailing)
+                        gradient: LinearGradient(colors: [Color.emerald, Color.teal], startPoint: .topLeading, endPoint: .bottomTrailing),
+                        action: {
+                            Task {
+                                await manager.filterGenreInMusicApp(genre: manager.topGenre)
+                            }
+                        }
                     )
                 }
                 
@@ -142,25 +152,10 @@ struct OverviewDashboardView: View {
                                     ScrollView(.vertical, showsIndicators: false) {
                                         VStack(spacing: 10) {
                                             ForEach(chartGenres) { stat in
-                                                HStack(spacing: 10) {
-                                                    Circle()
-                                                        .fill(genreColor(for: stat.genre))
-                                                        .frame(width: 8, height: 8)
-                                                    
-                                                    Text(stat.genre)
-                                                        .font(.caption)
-                                                        .foregroundColor(.white.opacity(0.85))
-                                                    
-                                                    Spacer()
-                                                    
-                                                    Text(String(format: "%.1f%%", stat.percentage))
-                                                        .font(.system(.caption2, design: .monospaced))
-                                                        .foregroundColor(.secondary)
-                                                }
+                                                GenreLegendRow(stat: stat, manager: manager)
                                             }
                                         }
-                                    }
-                                    .frame(width: 160, height: 180)
+                                    }.frame(width: 160, height: 180)
                                 }
                             }
                         }
@@ -208,6 +203,7 @@ struct MetricCard: View {
     let subtitle: String
     let icon: String
     let gradient: LinearGradient
+    var action: (() -> Void)? = nil
     
     @State private var isHovered = false
     
@@ -235,7 +231,7 @@ struct MetricCard: View {
                         .font(.system(size: 24, weight: .bold, design: .rounded))
                         .lineLimit(1)
                         .minimumScaleFactor(0.6)
-                        .foregroundColor(.white)
+                        .foregroundColor(isHovered && action != nil ? .purple : .white)
                     
                     Text(subtitle)
                         .font(.caption2)
@@ -246,8 +242,69 @@ struct MetricCard: View {
         }
         .glassCardHoverEffect(cornerRadius: 14)
         .onHover { hovering in
-            isHovered = hovering
+            if action != nil {
+                isHovered = hovering
+            }
         }
+        .onTapGesture {
+            if let action = action {
+                action()
+            }
+        }
+        .help(action != nil ? "Click to filter in macOS Music" : "")
+    }
+}
+
+struct GenreLegendRow: View {
+    let stat: GenreStat
+    @ObservedObject var manager: MusicLibraryManager
+    @State private var isHovered = false
+    
+    var body: some View {
+        HStack(spacing: 10) {
+            Circle()
+                .fill(genreColor(for: stat.genre))
+                .frame(width: 8, height: 8)
+            
+            Text(stat.genre)
+                .font(.caption)
+                .foregroundColor(isHovered && stat.genre != "Others" ? .purple : .white.opacity(0.85))
+            
+            Spacer()
+            
+            Text(String(format: "%.1f%%", stat.percentage))
+                .font(.system(.caption2, design: .monospaced))
+                .foregroundColor(.secondary)
+        }
+        .contentShape(Rectangle())
+        .onHover { hovering in
+            if stat.genre != "Others" {
+                isHovered = hovering
+            }
+        }
+        .onTapGesture {
+            if stat.genre != "Others" {
+                Task {
+                    await manager.filterGenreInMusicApp(genre: stat.genre)
+                }
+            }
+        }
+        .help(stat.genre != "Others" ? "Click to filter genre '\(stat.genre)' in macOS Music" : "")
+    }
+    
+    private func genreColor(for genre: String) -> Color {
+        let g = genre.lowercased()
+        if g.contains("synthwave") || g.contains("electronic") || g.contains("techno") || g.contains("dance") { return Color.purple }
+        if g.contains("rock") || g.contains("indie") || g.contains("alternative") { return Color.cyan }
+        if g.contains("house") || g.contains("lofi") || g.contains("chill") { return Color.orange }
+        if g.contains("classical") || g.contains("orchestral") || g.contains("soundtrack") { return Color.pink }
+        if g.contains("jazz") || g.contains("blues") || g.contains("soul") { return Color.yellow }
+        if g.contains("pop") || g.contains("hip hop") || g.contains("rap") || g.contains("r&b") { return Color.teal }
+        if g.contains("others") || g.contains("other") { return Color.gray.opacity(0.8) }
+        
+        let colors: [Color] = [.purple, .cyan, .orange, .pink, .yellow, .teal, .indigo, .mint]
+        let index = abs(genre.hashValue) % colors.count
+        return colors[index]
     }
 }
 

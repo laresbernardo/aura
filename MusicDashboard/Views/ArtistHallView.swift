@@ -102,7 +102,7 @@ struct ArtistHallView: View {
                     
                     LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 20) {
                         ForEach(displayedArtists) { stat in
-                            ArtistProfileCard(stat: stat)
+                            ArtistProfileCard(stat: stat, manager: manager)
                         }
                     }
                     
@@ -147,6 +147,7 @@ struct ArtistHallView: View {
 
 struct ArtistProfileCard: View {
     let stat: ArtistStat
+    @ObservedObject var manager: MusicLibraryManager
     @State private var isHovered = false
     
     var body: some View {
@@ -244,5 +245,11 @@ struct ArtistProfileCard: View {
         }
         .glassCardHoverEffect(cornerRadius: 16)
         .onHover { isHovered = $0 }
+        .onTapGesture {
+            Task {
+                await manager.filterArtistInMusicApp(artist: stat.artist)
+            }
+        }
+        .help("Click to filter \(stat.artist) in macOS Music")
     }
 }

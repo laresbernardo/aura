@@ -3,7 +3,6 @@ import Charts
 
 struct TemporalRhythmsView: View {
     @ObservedObject var manager: MusicLibraryManager
-    @State private var hoveredCard: String? = nil
     
     var body: some View {
         ScrollView(.vertical, showsIndicators: false) {
@@ -52,7 +51,7 @@ struct TemporalRhythmsView: View {
                                 ForEach(0..<24, id: \.self) { hour in
                                     let count = manager.listeningHourCounts[hour] ?? 0
                                     BarMark(
-                                        x: .value("Hour", hourFormatted(hour)),
+                                        x: .value("Hour", hour),
                                         y: .value("Plays", count)
                                     )
                                     .foregroundStyle(
@@ -73,10 +72,12 @@ struct TemporalRhythmsView: View {
                                 }
                             }
                             .chartXAxis {
-                                AxisMarks { value in
-                                    AxisValueLabel()
-                                        .foregroundStyle(.white.opacity(0.8))
-                                        .font(.system(size: 9, design: .rounded))
+                                AxisMarks(values: [0, 3, 6, 9, 12, 15, 18, 21, 23]) { value in
+                                    if let hour = value.as(Int.self) {
+                                        AxisValueLabel(hourLabel(hour))
+                                            .foregroundStyle(.white.opacity(0.8))
+                                            .font(.system(size: 9, design: .rounded))
+                                    }
                                 }
                             }
                             .frame(height: 220)
@@ -88,43 +89,21 @@ struct TemporalRhythmsView: View {
                     
                     // MARK: - Smart Temporal Recommendation
                     currentVibeCard
-                    
-                    // MARK: - Temporal Period Profiles
-                    Text("Daily Listening Cycles")
-                        .font(.title3)
-                        .fontWeight(.bold)
-                        .foregroundColor(.white)
-                        .padding(.top, 8)
-                    
-                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 20) {
-                        ForEach(manager.temporalStats) { stat in
-                            TemporalPeriodCard(stat: stat, isHovered: Binding(
-                                get: { hoveredCard == stat.period },
-                                set: { hoveredCard = $0 ? stat.period : nil }
-                            ))
-                        }
-                    }
                 }
             }
             .padding(4)
         }
     }
     
-    // Format hour integer to human readable string (e.g. 0 -> 12AM, 13 -> 1PM)
-    private func hourFormatted(_ hour: Int) -> String {
+    // Label hour integer to AM/PM string (e.g. 0 -> 12 AM, 12 -> 12 PM)
+    private func hourLabel(_ hour: Int) -> String {
         switch hour {
-        case 0: return "12A"
-        case 6: return "6A"
-        case 12: return "12P"
-        case 18: return "6P"
-        case 23: return "11P"
+        case 0: return "12 AM"
+        case 12: return "12 PM"
         default:
-            if hour % 3 == 0 {
-                let suffix = hour >= 12 ? "P" : "A"
-                let val = hour > 12 ? hour - 12 : hour
-                return "\(val)\(suffix)"
-            }
-            return ""
+            let suffix = hour >= 12 ? "PM" : "AM"
+            let val = hour > 12 ? hour - 12 : hour
+            return "\(val) \(suffix)"
         }
     }
     
@@ -218,68 +197,5 @@ struct TemporalRhythmsView: View {
                 color: .indigo
             )
         }
-    }
-}
-
-struct TemporalPeriodCard: View {
-    let stat: TemporalStat
-    @Binding var isHovered: Bool
-    
-    var body: some View {
-        GlassCard(cornerRadius: 16, shadowRadius: 10) {
-            VStack(alignment: .leading, spacing: 16) {
-                HStack(alignment: .top) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(stat.period)
-                            .font(.system(.headline, design: .rounded))
-                            .fontWeight(.bold)
-                            .foregroundColor(.white)
-                        
-                        Text("\(stat.count) playbacks logged")
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
-                    }
-                    Spacer()
-                    
-                    ZStack {
-                        Circle()
-                            .fill(LinearGradient(colors: stat.gradientColors.map { $0.opacity(isHovered ? 0.45 : 0.15) }, startPoint: .topLeading, endPoint: .bottomTrailing))
-                            .frame(width: 36, height: 36)
-                            .blur(radius: isHovered ? 2 : 0)
-                            .animation(.spring(), value: isHovered)
-                        
-                        Image(systemName: stat.icon)
-                            .font(.system(size: 14, weight: .bold))
-                            .foregroundColor(stat.gradientColors.first ?? .purple)
-                    }
-                }
-                
-                Divider().background(Color.white.opacity(0.06))
-                
-                Text(stat.description)
-                    .font(.caption)
-                    .foregroundColor(.white.opacity(0.8))
-                    .lineSpacing(3)
-                
-                // Glow line progress indicator
-                GeometryReader { geo in
-                    ZStack(alignment: .leading) {
-                        RoundedRectangle(cornerRadius: 2)
-                            .fill(Color.white.opacity(0.06))
-                            .frame(height: 4)
-                        
-                        RoundedRectangle(cornerRadius: 2)
-                            .fill(LinearGradient(colors: stat.gradientColors, startPoint: .leading, endPoint: .trailing))
-                            .frame(width: geo.size.width * CGFloat(min(1.0, Double(stat.count) / 1000.0)), height: 4)
-                            .shadow(color: (stat.gradientColors.first ?? .purple).opacity(0.35), radius: 2)
-                    }
-                }
-                .frame(height: 4)
-                .padding(.top, 4)
-            }
-            .padding(20)
-        }
-        .glassCardHoverEffect(cornerRadius: 16)
-        .onHover { isHovered = $0 }
     }
 }
