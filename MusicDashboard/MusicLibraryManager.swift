@@ -15,11 +15,26 @@ class MusicLibraryManager: ObservableObject {
     }
     
     @Published var tracks: [Track] = []
+    @Published var allTracks: [Track] = []
     @Published var isLoading: Bool = false
     @Published var syncError: String? = nil
     @Published var isDemoMode: Bool = true // Keep for backwards compatibility
     @Published var sourceMode: SourceMode = .demo
     @Published var musicAppRunningState: MusicAppState = .unknown
+    
+    @Published var currentFilter: TimeFilter = .currentYear
+    @Published var customStartDate: Date = Calendar.current.date(byAdding: .month, value: -1, to: Date()) ?? Date()
+    @Published var customEndDate: Date = Date()
+    
+    var currentYearString: String {
+        "\(Calendar.current.component(.year, from: Date()))"
+    }
+    var previousYearString: String {
+        "\(Calendar.current.component(.year, from: Date()) - 1)"
+    }
+    var twoYearsAgoString: String {
+        "\(Calendar.current.component(.year, from: Date()) - 2)"
+    }
     
     enum MusicAppState {
         case unknown
@@ -30,6 +45,59 @@ class MusicLibraryManager: ObservableObject {
     
     init() {
         loadDemoLibrary()
+    }
+    
+    func applyFilter() {
+        let cal = Calendar.current
+        let currentYearVal = cal.component(.year, from: Date())
+        
+        switch currentFilter {
+        case .allTime:
+            self.tracks = allTracks
+        case .currentYear:
+            self.tracks = allTracks.filter { track in
+                if let lastPlayed = track.lastPlayedDate {
+                    return cal.component(.year, from: lastPlayed) == currentYearVal
+                }
+                if let added = track.addedDate {
+                    return cal.component(.year, from: added) == currentYearVal
+                }
+                return false
+            }
+        case .previousYear:
+            self.tracks = allTracks.filter { track in
+                if let lastPlayed = track.lastPlayedDate {
+                    return cal.component(.year, from: lastPlayed) == (currentYearVal - 1)
+                }
+                if let added = track.addedDate {
+                    return cal.component(.year, from: added) == (currentYearVal - 1)
+                }
+                return false
+            }
+        case .twoYearsAgo:
+            self.tracks = allTracks.filter { track in
+                if let lastPlayed = track.lastPlayedDate {
+                    return cal.component(.year, from: lastPlayed) == (currentYearVal - 2)
+                }
+                if let added = track.addedDate {
+                    return cal.component(.year, from: added) == (currentYearVal - 2)
+                }
+                return false
+            }
+        case .customRange:
+            let startOfDay = cal.startOfDay(for: customStartDate)
+            let endOfDay = cal.date(bySettingHour: 23, minute: 59, second: 59, of: customEndDate) ?? customEndDate
+            
+            self.tracks = allTracks.filter { track in
+                if let lastPlayed = track.lastPlayedDate {
+                    return lastPlayed >= startOfDay && lastPlayed <= endOfDay
+                }
+                if let added = track.addedDate {
+                    return added >= startOfDay && added <= endOfDay
+                }
+                return false
+            }
+        }
     }
     
     // Switch between the three library sources
@@ -99,8 +167,11 @@ class MusicLibraryManager: ObservableObject {
         case .success(let fetchedTracks):
             if fetchedTracks.isEmpty {
                 self.syncError = "Your Music library appears to be empty."
+                self.allTracks = []
+                self.tracks = []
             } else {
-                self.tracks = fetchedTracks
+                self.allTracks = fetchedTracks
+                self.applyFilter()
                 self.syncError = nil
             }
         case .failure(let error):
@@ -121,6 +192,7 @@ class MusicLibraryManager: ObservableObject {
             if !isRunning {
                 self.musicAppRunningState = .notRunning
                 self.isLoading = false
+                self.allTracks = []
                 self.tracks = []
                 self.syncError = "The Music.app is not running. Please launch it to establish a direct connection."
                 return
@@ -240,6 +312,7 @@ class MusicLibraryManager: ObservableObject {
                     if errorMessage.contains("automation") || errorMessage.contains("Permissions") {
                         self.musicAppRunningState = .permissionDenied
                     }
+                    self.allTracks = []
                     self.tracks = []
                     self.isLoading = false
                     return
@@ -250,9 +323,11 @@ class MusicLibraryManager: ObservableObject {
                 
                 if fetchedTracks.isEmpty {
                     self.syncError = "Your macOS Music library appears to be empty."
+                    self.allTracks = []
                     self.tracks = []
                 } else {
-                    self.tracks = fetchedTracks
+                    self.allTracks = fetchedTracks
+                    self.applyFilter()
                     self.syncError = nil
                 }
             } catch {
@@ -735,7 +810,8 @@ class MusicLibraryManager: ObservableObject {
             }
         }
         
-        self.tracks = mock
+        self.allTracks = mock
+        self.applyFilter()
     }
     
     // MARK: - Analytics Computations (For Swift Charts and UI KPIs)

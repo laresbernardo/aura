@@ -263,24 +263,92 @@ struct MainView: View {
                             .transition(.opacity)
                     } else {
                         // Normal Operations
-                        Group {
-                            switch currentTab {
-                            case .overview:
-                                OverviewDashboardView(manager: manager)
-                            case .habits:
-                                ListeningHabitsView(manager: manager)
-                            case .artists:
-                                ArtistHallView(manager: manager)
-                            case .persona:
-                                AuraProfileView(manager: manager)
-                            case .temporal:
-                                TemporalRhythmsView(manager: manager)
-                            case .timeMachine:
-                                TimeMachineView(manager: manager)
+                        VStack(spacing: 0) {
+                            // Smart Pinned Header Filter Bar
+                            HStack {
+                                Spacer()
+                                
+                                HStack(spacing: 8) {
+                                    Text("Time Range:")
+                                        .font(.system(size: 10, weight: .bold))
+                                        .foregroundColor(.secondary)
+                                        .textCase(.uppercase)
+                                    
+                                    Picker("", selection: Binding(
+                                        get: { manager.currentFilter },
+                                        set: { newValue in
+                                            manager.currentFilter = newValue
+                                            manager.applyFilter()
+                                        }
+                                    )) {
+                                        Text("All Time").tag(TimeFilter.allTime)
+                                        Text(manager.currentYearString).tag(TimeFilter.currentYear)
+                                        Text(manager.previousYearString).tag(TimeFilter.previousYear)
+                                        Text(manager.twoYearsAgoString).tag(TimeFilter.twoYearsAgo)
+                                        Text("Custom").tag(TimeFilter.customRange)
+                                    }
+                                    .pickerStyle(.segmented)
+                                    .scaleEffect(0.9)
+                                    .frame(width: 320)
+                                }
+                                
+                                if manager.currentFilter == .customRange {
+                                    HStack(spacing: 6) {
+                                        DatePicker("", selection: Binding(
+                                            get: { manager.customStartDate },
+                                            set: { newValue in
+                                                manager.customStartDate = newValue
+                                                manager.applyFilter()
+                                            }
+                                        ), displayedComponents: .date)
+                                        .labelsHidden()
+                                        .controlSize(.small)
+                                        .scaleEffect(0.85)
+                                        .frame(width: 90)
+                                        
+                                        Text("to")
+                                            .font(.caption2)
+                                            .foregroundColor(.secondary)
+                                        
+                                        DatePicker("", selection: Binding(
+                                            get: { manager.customEndDate },
+                                            set: { newValue in
+                                                manager.customEndDate = newValue
+                                                manager.applyFilter()
+                                            }
+                                        ), displayedComponents: .date)
+                                        .labelsHidden()
+                                        .controlSize(.small)
+                                        .scaleEffect(0.85)
+                                        .frame(width: 90)
+                                    }
+                                    .transition(.move(edge: .trailing).combined(with: .opacity))
+                                }
                             }
+                            .padding(.horizontal, 28)
+                            .padding(.top, 20)
+                            .padding(.bottom, 6)
+                            
+                            Group {
+                                switch currentTab {
+                                case .overview:
+                                    OverviewDashboardView(manager: manager)
+                                case .habits:
+                                    ListeningHabitsView(manager: manager)
+                                case .artists:
+                                    ArtistHallView(manager: manager)
+                                case .persona:
+                                    AuraProfileView(manager: manager)
+                                case .temporal:
+                                    TemporalRhythmsView(manager: manager)
+                                case .timeMachine:
+                                    TimeMachineView(manager: manager)
+                                }
+                            }
+                            .padding(.horizontal, 28)
+                            .padding(.bottom, 28)
+                            .transition(.asymmetric(insertion: .opacity.combined(with: .move(edge: .bottom)), removal: .opacity))
                         }
-                        .padding(28)
-                        .transition(.asymmetric(insertion: .opacity.combined(with: .move(edge: .bottom)), removal: .opacity))
                     }
                 }
             }
