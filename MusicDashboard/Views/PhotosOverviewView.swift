@@ -238,15 +238,15 @@ struct PhotosMetricCard: View {
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
                     Text(title)
-                        .font(.caption)
-                        .fontWeight(.bold)
+                        .font(.system(size: 9, weight: .bold, design: .rounded))
                         .foregroundColor(.secondary)
                         .textCase(.uppercase)
+                        .lineLimit(1)
                     
                     Spacer()
                     
                     Image(systemName: icon)
-                        .font(.system(size: 16))
+                        .font(.system(size: 14))
                         .foregroundStyle(gradient)
                         .scaleEffect(isHovered ? 1.2 : 1.0)
                         .animation(.spring(response: 0.35, dampingFraction: 0.6), value: isHovered)
@@ -254,18 +254,21 @@ struct PhotosMetricCard: View {
                 
                 VStack(alignment: .leading, spacing: 4) {
                     Text(value)
-                        .font(.system(size: 20, weight: .bold, design: .rounded))
+                        .font(.system(size: 19, weight: .bold, design: .rounded))
                         .lineLimit(1)
                         .minimumScaleFactor(0.6)
                         .foregroundColor(.white)
                     
                     Text(subtitle)
-                        .font(.caption2)
+                        .font(.system(size: 9.5, design: .rounded))
                         .foregroundColor(.secondary)
-                        .lineLimit(1)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.85)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            .padding(18)
+            .padding(.horizontal, 11)
+            .padding(.vertical, 14)
         }
         .glassCardHoverEffect(cornerRadius: 14)
         .onHover { hovering in

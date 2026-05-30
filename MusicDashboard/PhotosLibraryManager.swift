@@ -109,7 +109,7 @@ class PhotosLibraryManager: ObservableObject {
     @Published var sourceMode: SourceMode = .demo
     @Published var photosAppRunningState: PhotosAppState = .unknown
     
-    @Published var currentFilter: TimeFilter = .allTime
+    @Published var currentFilter: TimeFilter = .specificYear(Calendar.current.component(.year, from: Date()))
     @Published var customStartDate: Date = Calendar.current.date(byAdding: .month, value: -1, to: Date()) ?? Date()
     @Published var customEndDate: Date = Date()
     
@@ -859,8 +859,102 @@ class PhotosLibraryManager: ObservableObject {
         return Set(photos.compactMap(\.countryName)).count
     }
     
+    let altitudeProfileLabels = ["< 20 m", "20 m - 100 m", "100 m - 500 m", "> 500 m"]
+    
+    var maxAltitudePhoto: Photo? {
+        return photos.filter { $0.altitude != nil }.max(by: { ($0.altitude ?? 0.0) < ($1.altitude ?? 0.0) })
+    }
+    
+    private var altitudeNumberFormatter: NumberFormatter {
+        let f = NumberFormatter()
+        f.numberStyle = .decimal
+        f.groupingSeparator = ","
+        f.maximumFractionDigits = 0
+        return f
+    }
+    
+    var maxAltitudeFormatted: String {
+        guard let alt = maxAltitudePhoto?.altitude else { return "0 meters" }
+        let formattedVal = altitudeNumberFormatter.string(from: NSNumber(value: alt)) ?? String(format: "%.0f", alt)
+        return "\(formattedVal) meters"
+    }
+    
+    var maxAltitudeDetails: String {
+        guard let photo = maxAltitudePhoto else { return "No altitude data" }
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .none
+        let dateStr = formatter.string(from: photo.capturedDate)
+        
+        if let city = photo.cityName, let country = photo.countryName {
+            return "\(dateStr) • \(city), \(country)"
+        } else if let lat = photo.latitude, let lon = photo.longitude {
+            return String(format: "%@ • %.2f°, %.2f°", dateStr, lat, lon)
+        } else {
+            return dateStr
+        }
+    }
+    
     var maxAltitude: Double {
-        return photos.compactMap(\.altitude).max() ?? 0.0
+        return maxAltitudePhoto?.altitude ?? 0.0
+    }
+    
+    var northernMostPhoto: Photo? {
+        return photos.filter { $0.latitude != nil }.max(by: { ($0.latitude ?? 0.0) < ($1.latitude ?? 0.0) })
+    }
+    
+    var southernMostPhoto: Photo? {
+        return photos.filter { $0.latitude != nil }.min(by: { ($0.latitude ?? 0.0) < ($1.latitude ?? 0.0) })
+    }
+    
+    var northernMostFormatted: String {
+        guard let lat = northernMostPhoto?.latitude else { return "Unknown Latitude" }
+        return formatLatitude(lat)
+    }
+    
+    var northernMostDetails: String {
+        guard let photo = northernMostPhoto else { return "No coordinate data" }
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .none
+        let dateStr = formatter.string(from: photo.capturedDate)
+        
+        if let city = photo.cityName, let country = photo.countryName {
+            return "\(dateStr) • \(city), \(country)"
+        } else if let lat = photo.latitude, let lon = photo.longitude {
+            return String(format: "%@ • %.2f°, %.2f°", dateStr, lat, lon)
+        } else {
+            return dateStr
+        }
+    }
+    
+    var southernMostFormatted: String {
+        guard let lat = southernMostPhoto?.latitude else { return "Unknown Latitude" }
+        return formatLatitude(lat)
+    }
+    
+    var southernMostDetails: String {
+        guard let photo = southernMostPhoto else { return "No coordinate data" }
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .none
+        let dateStr = formatter.string(from: photo.capturedDate)
+        
+        if let city = photo.cityName, let country = photo.countryName {
+            return "\(dateStr) • \(city), \(country)"
+        } else if let lat = photo.latitude, let lon = photo.longitude {
+            return String(format: "%@ • %.2f°, %.2f°", dateStr, lat, lon)
+        } else {
+            return dateStr
+        }
+    }
+    
+    private func formatLatitude(_ lat: Double) -> String {
+        if lat >= 0 {
+            return String(format: "%.2f° N", lat)
+        } else {
+            return String(format: "%.2f° S", abs(lat))
+        }
     }
     
     // Altitude metrics distribution
@@ -884,10 +978,10 @@ class PhotosLibraryManager: ObservableObject {
         }
         
         return [
-            AltitudeBucket(label: "Coastal Base (<20m)", count: seaLevel),
-            AltitudeBucket(label: "Standard Land (20m - 100m)", count: normalElevation),
-            AltitudeBucket(label: "High Elevation (100m - 500m)", count: mountains),
-            AltitudeBucket(label: "Mountain Peaks (>500m)", count: airplane)
+            AltitudeBucket(label: altitudeProfileLabels[0], count: seaLevel),
+            AltitudeBucket(label: altitudeProfileLabels[1], count: normalElevation),
+            AltitudeBucket(label: altitudeProfileLabels[2], count: mountains),
+            AltitudeBucket(label: altitudeProfileLabels[3], count: airplane)
         ]
     }
     

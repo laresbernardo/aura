@@ -22,7 +22,7 @@ class MusicLibraryManager: ObservableObject {
     @Published var sourceMode: SourceMode = .demo
     @Published var musicAppRunningState: MusicAppState = .unknown
     
-    @Published var currentFilter: TimeFilter = .allTime
+    @Published var currentFilter: TimeFilter = .specificYear(Calendar.current.component(.year, from: Date()))
     @Published var customStartDate: Date = Calendar.current.date(byAdding: .month, value: -1, to: Date()) ?? Date()
     @Published var customEndDate: Date = Date()
     

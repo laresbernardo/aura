@@ -4,6 +4,22 @@ import Charts
 struct PhotosPlacesView: View {
     @ObservedObject var manager: PhotosLibraryManager
     
+    enum DestinationGrouping: String, CaseIterable, Identifiable {
+        case city = "City"
+        case country = "Country"
+        
+        var id: String { rawValue }
+    }
+    
+    struct GroupedDestination: Identifiable {
+        let id = UUID()
+        let name: String
+        let subname: String
+        let count: Int
+    }
+    
+    @State private var destinationGrouping: DestinationGrouping = .city
+    
     var body: some View {
         ScrollView(.vertical, showsIndicators: false) {
             VStack(alignment: .leading, spacing: 28) {
@@ -42,7 +58,7 @@ struct PhotosPlacesView: View {
                 }
                 
                 // MARK: - Places KPIs
-                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 20) {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 16), count: 5), spacing: 20) {
                     // KPI 1: Total Countries
                     PhotosMetricCard(
                         title: "Countries Visited",
@@ -55,17 +71,35 @@ struct PhotosPlacesView: View {
                     // KPI 2: Max Elevation
                     PhotosMetricCard(
                         title: "Maximum Altitude",
-                        value: String(format: "%.0f meters", manager.maxAltitude),
-                        subtitle: String(format: "Approx. %.0f feet elevation", manager.maxAltitude * 3.28084),
+                        value: manager.maxAltitudeFormatted,
+                        subtitle: manager.maxAltitudeDetails,
                         icon: "mountain.2.fill",
                         gradient: LinearGradient(colors: [.emerald, .teal], startPoint: .topLeading, endPoint: .bottomTrailing)
                     )
                     
-                    // KPI 3: Top Travel Spot
+                    // KPI 3: Northern-most Photo
+                    PhotosMetricCard(
+                        title: "Northern-most Photo",
+                        value: manager.northernMostFormatted,
+                        subtitle: manager.northernMostDetails,
+                        icon: "arrow.up.circle.fill",
+                        gradient: LinearGradient(colors: [.indigo, .purple], startPoint: .topLeading, endPoint: .bottomTrailing)
+                    )
+                    
+                    // KPI 4: Southern-most Photo
+                    PhotosMetricCard(
+                        title: "Southern-most Photo",
+                        value: manager.southernMostFormatted,
+                        subtitle: manager.southernMostDetails,
+                        icon: "arrow.down.circle.fill",
+                        gradient: LinearGradient(colors: [.orange, .pink], startPoint: .topLeading, endPoint: .bottomTrailing)
+                    )
+                    
+                    // KPI 5: Top Travel Spot
                     PhotosMetricCard(
                         title: "Top Travel Spot",
-                        value: topDestinationName,
-                        subtitle: "City with the most captures",
+                        value: topDestinationValue,
+                        subtitle: topDestinationSubtitle,
                         icon: "mappin.and.ellipse",
                         gradient: LinearGradient(colors: [.orange, .red], startPoint: .topLeading, endPoint: .bottomTrailing)
                     )
@@ -76,13 +110,24 @@ struct PhotosPlacesView: View {
                     // Destinations Table Card
                     GlassCard {
                         VStack(alignment: .leading, spacing: 18) {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("Travel Destinations")
-                                    .font(.headline)
-                                    .foregroundColor(.white)
-                                Text("Catalog of cities and country regions visited")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
+                            HStack {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("Travel Destinations")
+                                        .font(.headline)
+                                        .foregroundColor(.white)
+                                    Text("Catalog of cities and country regions visited")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                                Spacer()
+                                Picker("Group By", selection: $destinationGrouping) {
+                                    ForEach(DestinationGrouping.allCases) { option in
+                                        Text(option.rawValue).tag(option)
+                                    }
+                                }
+                                .pickerStyle(.segmented)
+                                .labelsHidden()
+                                .frame(width: 150)
                             }
                             
                             Divider().background(Color.white.opacity(0.06))
@@ -99,7 +144,7 @@ struct PhotosPlacesView: View {
                             } else {
                                 ScrollView(.vertical, showsIndicators: false) {
                                     VStack(spacing: 12) {
-                                        ForEach(manager.destinations) { stat in
+                                        ForEach(groupedDestinations) { stat in
                                             HStack(spacing: 12) {
                                                 ZStack {
                                                     Circle()
@@ -112,11 +157,11 @@ struct PhotosPlacesView: View {
                                                 }
                                                 
                                                 VStack(alignment: .leading, spacing: 2) {
-                                                    Text("\(stat.city)")
+                                                    Text("\(stat.name)")
                                                         .font(.system(.body, design: .rounded))
                                                         .fontWeight(.bold)
                                                         .foregroundColor(.white.opacity(0.95))
-                                                    Text(stat.country)
+                                                    Text(stat.subname)
                                                         .font(.caption)
                                                         .foregroundColor(.secondary)
                                                 }
@@ -184,9 +229,10 @@ struct PhotosPlacesView: View {
                                     AxisMarks { value in
                                         AxisValueLabel()
                                             .foregroundStyle(.white.opacity(0.85))
-                                            .font(.system(size: 8, design: .rounded))
+                                            .font(.system(size: 10, weight: .semibold, design: .rounded))
                                     }
                                 }
+                                .chartXScale(domain: manager.altitudeProfileLabels)
                                 .frame(height: 200)
                                 .padding(.vertical, 8)
                             }
@@ -201,8 +247,55 @@ struct PhotosPlacesView: View {
     }
     
     // MARK: - Places Helpers
-    private var topDestinationName: String {
-        guard let firstDest = manager.destinations.first else { return "Unknown Spot" }
-        return "\(firstDest.city), \(firstDest.country)"
+    private var groupedDestinations: [GroupedDestination] {
+        if destinationGrouping == .city {
+            return manager.destinations.map {
+                GroupedDestination(
+                    name: $0.city,
+                    subname: $0.country,
+                    count: $0.count
+                )
+            }
+        } else {
+            // Group by country
+            var countryCounts: [String: (shots: Int, cities: Set<String>)] = [:]
+            for dest in manager.destinations {
+                if var existing = countryCounts[dest.country] {
+                    existing.shots += dest.count
+                    existing.cities.insert(dest.city)
+                    countryCounts[dest.country] = existing
+                } else {
+                    countryCounts[dest.country] = (shots: dest.count, cities: [dest.city])
+                }
+            }
+            return countryCounts.map { country, data in
+                let cityCount = data.cities.count
+                let cityLabel = cityCount == 1 ? "1 city visited" : "\(cityCount) cities visited"
+                return GroupedDestination(
+                    name: country,
+                    subname: cityLabel,
+                    count: data.shots
+                )
+            }.sorted(by: { $0.count > $1.count })
+        }
+    }
+    
+    private var topDestinationValue: String {
+        let list = groupedDestinations
+        guard let first = list.first else { return "Unknown Spot" }
+        if destinationGrouping == .city {
+            return "\(first.name), \(first.subname)"
+        } else {
+            return first.name
+        }
+    }
+    
+    private var topDestinationSubtitle: String {
+        switch destinationGrouping {
+        case .city:
+            return "City with the most captures"
+        case .country:
+            return "Country with the most captures"
+        }
     }
 }
