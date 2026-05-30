@@ -196,10 +196,10 @@ class MusicLibraryManager: ObservableObject {
                 return JSON.stringify({ "error": "Could not access Music Library. Please check automation permissions." });
             }
             
-            var tracks = library.tracks;
+            var tracks = library.fileTracks;
             
             // JXA OPTIMIZATION: Bulk queries are blazingly fast on unfiltered collections (under 1.5s).
-            // Query library.tracks directly.
+            // Query library.fileTracks directly.
             
             var count = 0;
             try {
@@ -455,7 +455,7 @@ class MusicLibraryManager: ObservableObject {
             }
             
             var library = app.libraryPlaylists[0];
-            var allTracks = library.tracks;
+            var allTracks = library.fileTracks;
             
             var count = 0;
             for (var i = 0; i < tracksToFind.length; i++) {

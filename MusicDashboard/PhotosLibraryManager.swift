@@ -105,6 +105,7 @@ class PhotosLibraryManager: ObservableObject {
     @Published var isLoading: Bool = false
     @Published var syncError: String? = nil
     @Published var syncStatus: String = ""
+    @Published var isGeocoding: Bool = false
     @Published var sourceMode: SourceMode = .demo
     @Published var photosAppRunningState: PhotosAppState = .unknown
     
@@ -124,8 +125,41 @@ class PhotosLibraryManager: ObservableObject {
     
     private var geocodeTask: Task<Void, Never>? = nil
     
+    private var cacheURL: URL {
+        let paths = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)
+        let dir = paths[0].appendingPathComponent("Aura", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true, attributes: nil)
+        return dir.appendingPathComponent("photos_cache_v2.json")
+    }
+    
+    private func loadCachedPhotos() {
+        guard FileManager.default.fileExists(atPath: cacheURL.path) else { return }
+        do {
+            let data = try Data(contentsOf: cacheURL)
+            let cached = try JSONDecoder().decode([Photo].self, from: data)
+            if !cached.isEmpty {
+                self.allPhotos = cached
+                self.applyFilter()
+            }
+        } catch {
+            // Silently fall back if the cache is corrupt or missing
+        }
+    }
+    
+    func savePhotosToCache() {
+        do {
+            let data = try JSONEncoder().encode(allPhotos)
+            try data.write(to: cacheURL, options: .atomic)
+        } catch {
+            // Silently ignore save errors
+        }
+    }
+
     init() {
-        loadDemoLibrary()
+        loadCachedPhotos()
+        if allPhotos.isEmpty {
+            loadDemoLibrary()
+        }
     }
     
     var availableYears: [Int] {
@@ -170,6 +204,10 @@ class PhotosLibraryManager: ObservableObject {
         case .demo:
             loadDemoLibrary()
         case .direct:
+            loadCachedPhotos()
+            if allPhotos.isEmpty {
+                self.photos = []
+            }
             Task { await fetchDirectLibrary() }
         }
     }
@@ -220,12 +258,12 @@ class PhotosLibraryManager: ObservableObject {
         let fetchResult = await Task.detached(priority: .userInitiated) { () -> PHFetchResult<PHAsset> in
             let options = PHFetchOptions()
             options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
-            // Cap at a highly responsive 3,000 photos for geocoding & rendering performance
-            options.fetchLimit = 3000
+            // Cap at a highly responsive 100,000 photos to capture the user's entire library of 64,654 items
+            options.fetchLimit = 100000
             return PHAsset.fetchAssets(with: options)
         }.value
         
-        self.syncStatus = "Analyzing 3,000 most recent captures..."
+        self.syncStatus = "Analyzing Photo Library captures..."
         
         let manager = self
         let fetchedPhotos = await Task.detached(priority: .userInitiated) { [manager] () -> [Photo] in
@@ -236,10 +274,12 @@ class PhotosLibraryManager: ObservableObject {
             fetchResult.enumerateObjects { (asset, index, stop) in
                 let id = asset.localIdentifier
                 
-                // Super fast filename lookup using KVC fallback
+                // Super safe exception-guarded filename lookup using responds(to:)
                 var filename = "IMG_\(index).jpg"
-                if let name = asset.value(forKey: "filename") as? String {
-                    filename = name
+                if asset.responds(to: Selector(("filename"))) {
+                    if let name = asset.value(forKey: "filename") as? String {
+                        filename = name
+                    }
                 }
                 
                 let dateAdded = asset.creationDate?.timeIntervalSince1970 ?? Date().timeIntervalSince1970
@@ -281,8 +321,26 @@ class PhotosLibraryManager: ObservableObject {
             self.photos = []
         } else {
             self.syncStatus = "Resolving locations & altitudes..."
-            self.allPhotos = fetchedPhotos
+            
+            // Smart Merge: Restore already-geocoded cities/countries from memory/disk cache
+            let existingMap = Dictionary(uniqueKeysWithValues: self.allPhotos.compactMap { photo -> (String, Photo)? in
+                guard photo.cityName != nil else { return nil }
+                return (photo.id, photo)
+            })
+            
+            var merged: [Photo] = []
+            merged.reserveCapacity(fetchedPhotos.count)
+            for var p in fetchedPhotos {
+                if let cached = existingMap[p.id] {
+                    p.cityName = cached.cityName
+                    p.countryName = cached.countryName
+                }
+                merged.append(p)
+            }
+            
+            self.allPhotos = merged
             self.applyFilter()
+            self.savePhotosToCache()
             self.syncError = nil
             
             // Trigger asynchronous geocoding for coordinates
@@ -340,28 +398,52 @@ class PhotosLibraryManager: ObservableObject {
     
     // MARK: - CoreLocation Geocoding Engine
     
+    var pendingGeocodeCount: Int {
+        allPhotos.filter { $0.latitude != nil && $0.cityName == nil }.count
+    }
+    
     private func startGeocoding() {
         geocodeTask?.cancel()
+        isGeocoding = true
+        
+        let manager = self
         geocodeTask = Task {
+            defer {
+                Task { @MainActor in
+                    manager.isGeocoding = false
+                    manager.savePhotosToCache()
+                }
+            }
+            
             let geocoder = CLGeocoder()
             
             // Fetch cached values
             var cache = UserDefaults.standard.dictionary(forKey: "geocoded_locations_cache") as? [String: [String: String]] ?? [:]
             var updated = false
             
-            // Iterate over local photos
-            for i in 0..<photos.count {
+            // Capture a safe copy of photos to geocode on the MainActor
+            let targets = await Task { @MainActor in
+                manager.allPhotos.filter { $0.latitude != nil && $0.cityName == nil }
+            }.value
+            
+            guard !targets.isEmpty else { return }
+            
+            var batchCount = 0
+            
+            for photo in targets {
                 if Task.isCancelled { break }
-                let photo = photos[i]
-                
-                guard let lat = photo.latitude, let lon = photo.longitude, photo.cityName == nil else { continue }
+                guard let lat = photo.latitude, let lon = photo.longitude else { continue }
                 
                 // Group coordinates to 2 decimal places to bypass duplicate queries (~1km precision)
                 let key = String(format: "%.2f,%.2f", lat, lon)
+                var city = "Unknown City"
+                var country = "Unknown Country"
+                var found = false
                 
-                if let cached = cache[key], let city = cached["city"], let country = cached["country"] {
-                    photos[i].cityName = city
-                    photos[i].countryName = country
+                if let cached = cache[key], let cachedCity = cached["city"], let cachedCountry = cached["country"] {
+                    city = cachedCity
+                    country = cachedCountry
+                    found = true
                 } else {
                     // Slow geocode query to stay within system rate limits
                     do {
@@ -370,19 +452,47 @@ class PhotosLibraryManager: ObservableObject {
                         let placemarks = try await geocoder.reverseGeocodeLocation(location)
                         
                         if let placemark = placemarks.first {
-                            let city = placemark.locality ?? placemark.subAdministrativeArea ?? placemark.administrativeArea ?? "Unknown City"
-                            let country = placemark.country ?? "Unknown Country"
+                            city = placemark.locality ?? placemark.subAdministrativeArea ?? placemark.administrativeArea ?? "Unknown City"
+                            country = placemark.country ?? "Unknown Country"
                             
                             cache[key] = ["city": city, "country": country]
                             updated = true
-                            
-                            photos[i].cityName = city
-                            photos[i].countryName = country
+                            found = true
                         }
                     } catch {
-                        // Sleep a bit longer if we hit a rate limit, then continue or break
-                        try? await Task.sleep(nanoseconds: 5_000_000_000)
+                        // Sleep a bit longer if we hit a rate limit, then continue
+                        try? await Task.sleep(nanoseconds: 4_000_000_000)
                         continue
+                    }
+                }
+                
+                if found {
+                    let targetId = photo.id
+                    let resolvedCity = city
+                    let resolvedCountry = country
+                    
+                    await Task { @MainActor in
+                        // Safe ID-based updates rather than index-based, prevents array index out of bounds crashes
+                        if let idx = manager.allPhotos.firstIndex(where: { $0.id == targetId }) {
+                            manager.allPhotos[idx].cityName = resolvedCity
+                            manager.allPhotos[idx].countryName = resolvedCountry
+                        }
+                        if let idx = manager.photos.firstIndex(where: { $0.id == targetId }) {
+                            manager.photos[idx].cityName = resolvedCity
+                            manager.photos[idx].countryName = resolvedCountry
+                        }
+                    }.value
+                    
+                    batchCount += 1
+                    // Periodic cache writes every 10 resolved items
+                    if batchCount % 10 == 0 && updated {
+                        let currentCache = cache
+                        Task.detached(priority: .background) {
+                            UserDefaults.standard.set(currentCache, forKey: "geocoded_locations_cache")
+                        }
+                        await Task { @MainActor in
+                            manager.savePhotosToCache()
+                        }.value
                     }
                 }
             }

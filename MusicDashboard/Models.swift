@@ -22,16 +22,25 @@ struct Track: Codable, Identifiable, Hashable {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.id = UUID()
-        self.name = try container.decode(String.self, forKey: .name)
-        self.artist = try container.decode(String.self, forKey: .artist)
-        self.album = try container.decode(String.self, forKey: .album)
-        self.genre = try container.decode(String.self, forKey: .genre)
-        self.playCount = try container.decode(Int.self, forKey: .playCount)
-        self.skipCount = try container.decode(Int.self, forKey: .skipCount)
-        self.rating = try container.decode(Int.self, forKey: .rating)
-        self.dateAdded = try container.decodeIfPresent(Double.self, forKey: .dateAdded)
-        self.lastPlayed = try container.decodeIfPresent(Double.self, forKey: .lastPlayed)
-        self.year = try container.decode(Int.self, forKey: .year)
+        self.name = (try? container.decode(String.self, forKey: .name)) ?? "Unknown Track"
+        self.artist = (try? container.decode(String.self, forKey: .artist)) ?? "Unknown Artist"
+        self.album = (try? container.decode(String.self, forKey: .album)) ?? "Unknown Album"
+        self.genre = (try? container.decode(String.self, forKey: .genre)) ?? "Unknown Genre"
+        
+        self.playCount = (try? container.decode(Int.self, forKey: .playCount)) ??
+                         (try? container.decode(Double.self, forKey: .playCount)).map(Int.init) ?? 0
+                         
+        self.skipCount = (try? container.decode(Int.self, forKey: .skipCount)) ??
+                         (try? container.decode(Double.self, forKey: .skipCount)).map(Int.init) ?? 0
+                         
+        self.rating = (try? container.decode(Int.self, forKey: .rating)) ??
+                      (try? container.decode(Double.self, forKey: .rating)).map(Int.init) ?? 0
+                      
+        self.dateAdded = try? container.decode(Double.self, forKey: .dateAdded)
+        self.lastPlayed = try? container.decode(Double.self, forKey: .lastPlayed)
+        
+        self.year = (try? container.decode(Int.self, forKey: .year)) ??
+                    (try? container.decode(Double.self, forKey: .year)).map(Int.init) ?? 0
     }
     
     // Direct initializer for mock data and tests

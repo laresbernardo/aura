@@ -19,6 +19,28 @@ struct PhotosPlacesView: View {
                         .foregroundColor(.secondary)
                 }
                 
+                if manager.isGeocoding && manager.pendingGeocodeCount > 0 {
+                    HStack(spacing: 12) {
+                        ProgressView()
+                            .controlSize(.small)
+                            .tint(.emerald)
+                        Text("Analyzing travel places in the background... (\(manager.pendingGeocodeCount) locations remaining)")
+                            .font(.system(size: 11, weight: .bold, design: .rounded))
+                            .foregroundColor(.emerald)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .background(Color.emerald.opacity(0.08))
+                    .cornerRadius(8)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(Color.emerald.opacity(0.2), lineWidth: 1)
+                    )
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .animation(.spring(), value: manager.isGeocoding)
+                }
+                
                 // MARK: - Places KPIs
                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 20) {
                     // KPI 1: Total Countries
