@@ -71,14 +71,26 @@ Think of it as **Spotify Wrapped and visual library insights, live and always up
 
 ## 🛠️ Installation
 
-### 1-Step Script (Recommended)
+### Option 1: Direct Download (Recommended)
 
+1. Download the latest pre-compiled **Aura.dmg** directly from [aura.bervos.org](https://aura.bervos.org).
+2. Open the downloaded `.dmg` file and drag **Aura** to your `/Applications` directory.
+
+### Option 2: Build From Source
+
+If you prefer to audit the Swift source code or build the application locally from the repository:
+
+1. Clone this repository and navigate to the directory:
 ```bash
-cd Aura
+git clone https://github.com/laresbernardo/aura.git
+cd aura
+```
+2. Run the automated installer:
+```bash
 ./install.sh
 ```
 
-This compiles all Swift sources, signs the app (ad-hoc), and installs it directly to `/Applications/Aura.app`. Aura launches automatically when done.
+This compiles all Swift sources, signs the app (ad-hoc), clears extended gatekeeper attributes, and installs it directly to `/Applications/Aura.app`. Aura launches automatically when finished.
 
 ---
 
