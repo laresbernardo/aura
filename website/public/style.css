@@ -501,142 +501,53 @@ body.photos-mode .mode-content.photos-only {
   position: relative;
 }
 
-.app-mockup {
-  width: 100%;
-  max-width: 440px;
-  border-radius: 20px;
-  background: #111016;
-  border: 1px solid rgba(255, 255, 255, 0.05);
-  box-shadow: 0 30px 60px rgba(0, 0, 0, 0.6);
-  overflow: hidden;
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
+.app-screenshot-wrapper {
   position: relative;
-}
-
-/* Mockup window dots */
-.window-header {
-  display: flex;
-  gap: 6px;
-  margin-bottom: 8px;
-}
-
-.dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-}
-
-.dot-red { background: #ff5f56; }
-.dot-yellow { background: #ffbd2e; }
-.dot-green { background: #27c93f; }
-
-/* Interactive Mockup Content */
-.mockup-card {
-  background: rgba(255, 255, 255, 0.02);
-  border: 1px solid var(--border-color);
-  border-radius: 14px;
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.mockup-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-secondary);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.mockup-main-val {
-  font-size: 28px;
-  font-weight: 800;
-  letter-spacing: -0.5px;
-}
-
-/* Music Mini Chart */
-.mini-chart {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.chart-bar-row {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.chart-label {
-  font-size: 11px;
-  color: var(--text-muted);
-  display: flex;
-  justify-content: space-between;
-}
-
-.chart-progress-bg {
-  background: rgba(255, 255, 255, 0.04);
-  height: 6px;
-  border-radius: 100px;
+  width: 100%;
+  max-width: 520px;
+  border-radius: 18px;
+  background: #0d0c11;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5), 0 0 30px rgba(139, 92, 246, 0.05);
   overflow: hidden;
+  transition: border-color var(--transition-slow), box-shadow var(--transition-slow);
 }
 
-.chart-progress-fill {
-  background: var(--accent-gradient);
-  height: 100%;
-  border-radius: 100px;
-  width: 0%;
-  transition: width 1.2s cubic-bezier(0.16, 1, 0.3, 1);
+body.photos-mode .app-screenshot-wrapper {
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5), 0 0 30px rgba(16, 185, 129, 0.05);
 }
 
-body.music-mode #music-progress-1 { width: 85%; }
-body.music-mode #music-progress-2 { width: 60%; }
-body.music-mode #music-progress-3 { width: 45%; }
-
-body.photos-mode #photos-progress-1 { width: 75%; }
-body.photos-mode #photos-progress-2 { width: 55%; }
-body.photos-mode #photos-progress-3 { width: 40%; }
-
-/* Custom glowing card in mockup */
-.glow-card-mockup {
-  border-color: var(--accent-border);
-  box-shadow: 0 0 20px var(--accent-glow);
-  transition: var(--transition-slow);
+.screenshot-img {
+  width: 100%;
+  height: auto;
+  display: none;
+  opacity: 0;
+  border-radius: 17px;
+  transition: opacity var(--transition-medium);
 }
 
-/* Photo Persona specific mockup card */
-.persona-header {
-  display: flex;
-  align-items: center;
-  gap: 12px;
+/* Toggle displays gracefully based on active theme */
+body.music-mode .music-only-img {
+  display: block;
+  opacity: 1;
+  animation: fadeIn 0.4s ease-out forwards;
 }
 
-.persona-avatar {
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  background: var(--accent-gradient);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #000;
-  font-weight: 700;
-  font-size: 14px;
+body.photos-mode .photos-only-img {
+  display: block;
+  opacity: 1;
+  animation: fadeIn 0.4s ease-out forwards;
 }
 
-.persona-details h4 {
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.persona-details p {
-  font-size: 11px;
-  color: var(--text-muted);
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
 /* --- THE THREE PILLARS (BENEFITS) --- */
@@ -879,15 +790,14 @@ body.light-mode .blob-2 {
   opacity: 0.45;
 }
 
-body.light-mode .app-mockup {
+body.light-mode .app-screenshot-wrapper {
   background: #fcfcfd;
   border-color: rgba(0, 0, 0, 0.08);
-  box-shadow: 0 30px 60px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.08), 0 0 30px rgba(139, 92, 246, 0.03);
 }
 
-body.light-mode .mockup-card {
-  background: rgba(0, 0, 0, 0.015);
-  border-color: rgba(0, 0, 0, 0.06);
+body.light-mode.photos-mode .app-screenshot-wrapper {
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.08), 0 0 30px rgba(16, 185, 129, 0.03);
 }
 
 body.light-mode .btn-secondary {
@@ -989,16 +899,6 @@ body.light-mode .benefit-icon {
   background: var(--accent-glow);
 }
 
-body.light-mode .mockup-card {
-  background: rgba(255, 255, 255, 0.7);
-  border-color: rgba(0, 0, 0, 0.05);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.02);
-}
-
-body.light-mode .glow-card-mockup {
-  border-color: var(--accent-border);
-  box-shadow: 0 8px 24px var(--accent-glow), 0 2px 6px rgba(0, 0, 0, 0.02);
-}
 
 body.light-mode .glass-card {
   background: rgba(255, 255, 255, 0.55);

@@ -4,6 +4,13 @@ Aura is a native **macOS SwiftUI** app that turns your macOS Music and Apple Pho
 
 Think of it as **Spotify Wrapped and visual library insights, live and always up to date.**
 
+## 🖼️ Screenshots
+
+<p align="center">
+  <img src="screenshots/screenshot_music.png" alt="Aura Music Dashboard" width="49%" />
+  <img src="screenshots/screenshot_photos.png" alt="Aura Photos Dashboard" width="49%" />
+</p>
+
 ---
 
 ## 🎵 Music Mode Dashboards
