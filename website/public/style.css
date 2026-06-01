@@ -13,13 +13,13 @@
   
   /* Music Theme (Default) */
   --accent-music: #8b5cf6;
-  --accent-music-glow: rgba(139, 92, 246, 0.15);
+  --accent-music-glow: rgba(139, 92, 246, 0.28);
   --accent-music-border: rgba(139, 92, 246, 0.3);
   --gradient-music: linear-gradient(135deg, #a78bfa 0%, #7c3aed 100%);
   
   /* Photos Theme */
   --accent-photos: #10b981;
-  --accent-photos-glow: rgba(16, 185, 129, 0.15);
+  --accent-photos-glow: rgba(16, 185, 129, 0.28);
   --accent-photos-border: rgba(16, 185, 129, 0.3);
   --gradient-photos: linear-gradient(135deg, #34d399 0%, #059669 100%);
 
@@ -50,8 +50,14 @@ body.photos-mode {
   -webkit-font-smoothing: antialiased;
 }
 
-html, body {
+html {
   background-color: var(--bg-dark);
+}
+
+body {
+  background-color: transparent;
+  position: relative;
+  isolation: isolate;
   font-family: var(--font-sans);
   color: var(--text-primary);
   line-height: 1.5;
@@ -78,8 +84,8 @@ html, body {
   position: absolute;
   inset: 0;
   background-image: 
-    linear-gradient(rgba(255, 255, 255, 0.015) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.015) 1px, transparent 1px);
+    linear-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
   background-size: 64px 64px;
   background-position: center top;
   mask-image: radial-gradient(circle at 50% 25%, black 20%, transparent 75%);
