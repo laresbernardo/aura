@@ -581,33 +581,6 @@ class PhotosLibraryManager: ObservableObject {
                     do {
                         try await Task.sleep(nanoseconds: 800_000_000) // 0.8 seconds
                         let location = CLLocation(latitude: lat, longitude: lon)
-                        
-                        #if compiler(>=6.0)
-                        if #available(macOS 15.0, *) {
-                            if let request = MKReverseGeocodingRequest(location: location) {
-                                let mapItems = try await request.mapItems
-                                if let mapItem = mapItems.first, let representations = mapItem.addressRepresentations {
-                                    city = representations.cityName ?? "Unknown City"
-                                    country = representations.regionName ?? "Unknown Country"
-                                    
-                                    cache[key] = ["city": city, "country": country]
-                                    updated = true
-                                    found = true
-                                }
-                            }
-                        } else {
-                            let geocoder = CLGeocoder()
-                            let placemarks = try await geocoder.reverseGeocodeLocation(location)
-                            if let placemark = placemarks.first {
-                                city = placemark.locality ?? placemark.subAdministrativeArea ?? placemark.administrativeArea ?? "Unknown City"
-                                country = placemark.country ?? "Unknown Country"
-                                
-                                cache[key] = ["city": city, "country": country]
-                                updated = true
-                                found = true
-                            }
-                        }
-                        #else
                         let geocoder = CLGeocoder()
                         let placemarks = try await geocoder.reverseGeocodeLocation(location)
                         if let placemark = placemarks.first {
@@ -618,7 +591,6 @@ class PhotosLibraryManager: ObservableObject {
                             updated = true
                             found = true
                         }
-                        #endif
                     } catch {
                         // Sleep a bit longer if we hit a rate limit, then continue
                         try? await Task.sleep(nanoseconds: 4_000_000_000)
