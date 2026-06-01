@@ -15,5 +15,10 @@
   },
   "firestore": {
     "rules": "firestore.rules"
+  },
+  "emulators": {
+    "hosting": {
+      "port": 6006
+    }
   }
 }
