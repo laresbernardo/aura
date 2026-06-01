@@ -72,6 +72,32 @@ html, body {
   overflow: hidden;
 }
 
+/* Premium Vercel-style spotlight background grid */
+.ambient-background::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: 
+    linear-gradient(rgba(255, 255, 255, 0.015) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.015) 1px, transparent 1px);
+  background-size: 64px 64px;
+  background-position: center top;
+  mask-image: radial-gradient(circle at 50% 25%, black 20%, transparent 75%);
+  -webkit-mask-image: radial-gradient(circle at 50% 25%, black 20%, transparent 75%);
+  pointer-events: none;
+  z-index: 1;
+  opacity: 0.8;
+  transition: background-image var(--transition-slow);
+}
+
+body.light-mode .ambient-background::before {
+  background-image: 
+    linear-gradient(rgba(0, 0, 0, 0.012) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 0, 0, 0.012) 1px, transparent 1px);
+  mask-image: radial-gradient(circle at 50% 25%, black 15%, transparent 70%);
+  -webkit-mask-image: radial-gradient(circle at 50% 25%, black 15%, transparent 70%);
+}
+
 .blob {
   position: absolute;
   border-radius: 50%;
@@ -79,6 +105,32 @@ html, body {
   opacity: 0.8;
   mix-blend-mode: screen;
   transition: var(--transition-slow);
+  z-index: 0;
+}
+
+/* Slow, organic drifting background motion to eliminate layout empty voids */
+@keyframes drift {
+  0% {
+    transform: translate(0, 0) scale(1);
+  }
+  50% {
+    transform: translate(4%, 6%) scale(1.08);
+  }
+  100% {
+    transform: translate(0, 0) scale(1);
+  }
+}
+
+@keyframes drift-reverse {
+  0% {
+    transform: translate(0, 0) scale(1.04);
+  }
+  50% {
+    transform: translate(-3%, -5%) scale(0.96);
+  }
+  100% {
+    transform: translate(0, 0) scale(1.04);
+  }
 }
 
 .blob-1 {
@@ -87,6 +139,7 @@ html, body {
   width: 45vw;
   height: 45vw;
   background: var(--accent-glow);
+  animation: drift 28s infinite alternate ease-in-out;
 }
 
 .blob-2 {
@@ -95,6 +148,7 @@ html, body {
   width: 40vw;
   height: 40vw;
   background: rgba(124, 58, 237, 0.05);
+  animation: drift-reverse 32s infinite alternate ease-in-out;
 }
 
 body.photos-mode .blob-2 {
