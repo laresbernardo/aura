@@ -210,7 +210,11 @@ async function handleDownload() {
   const downloadUrl = "/assets/Aura.dmg";
   const link = document.createElement("a");
   link.href = downloadUrl;
-  link.setAttribute("download", "Aura.dmg");
+  
+  // Use active version in downloaded filename (e.g. Aura-1.0.57.dmg)
+  const versionSuffix = APP_VERSION !== "__AURA_VERSION__" ? `-${APP_VERSION}` : "";
+  link.setAttribute("download", `Aura${versionSuffix}.dmg`);
+  
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
