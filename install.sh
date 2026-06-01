@@ -14,7 +14,7 @@ RED='\033[0;31m'
 NC='\033[0m'
 
 SOURCE_DIR="$(cd "$(dirname "$0")" && pwd)"
-PLIST_FILE="$SOURCE_DIR/MusicDashboard/Info.plist"
+PLIST_FILE="$SOURCE_DIR/AuraApp/Info.plist"
 NEW_VERSION="Unknown"
 NEW_BUILD="Unknown"
 
@@ -75,29 +75,29 @@ SDK_PATH=$(xcrun --show-sdk-path --sdk macosx)
 SRC_STAGING="/tmp/AuraSource"
 rm -rf "$SRC_STAGING"
 mkdir -p "$SRC_STAGING"
-cp -R "$SOURCE_DIR/MusicDashboard" "$SRC_STAGING/"
+cp -R "$SOURCE_DIR/AuraApp" "$SRC_STAGING/"
 xattr -rc "$SRC_STAGING"
 find "$SRC_STAGING" -type f -exec touch {} +
 sleep 1
 
 swiftc -O -sdk "$SDK_PATH" \
     -o "$APP_BUNDLE/Contents/MacOS/Aura" \
-    "$SRC_STAGING/MusicDashboard/Models.swift" \
-    "$SRC_STAGING/MusicDashboard/MusicLibraryManager.swift" \
-    "$SRC_STAGING/MusicDashboard/PhotosLibraryManager.swift" \
-    "$SRC_STAGING/MusicDashboard/GlassCard.swift" \
-    "$SRC_STAGING/MusicDashboard/Views/MainView.swift" \
-    "$SRC_STAGING/MusicDashboard/Views/OverviewDashboardView.swift" \
-    "$SRC_STAGING/MusicDashboard/Views/ListeningHabitsView.swift" \
-    "$SRC_STAGING/MusicDashboard/Views/TimeMachineView.swift" \
-    "$SRC_STAGING/MusicDashboard/Views/ArtistHallView.swift" \
-    "$SRC_STAGING/MusicDashboard/Views/AuraProfileView.swift" \
-    "$SRC_STAGING/MusicDashboard/Views/TemporalRhythmsView.swift" \
-    "$SRC_STAGING/MusicDashboard/Views/PhotosOverviewView.swift" \
-    "$SRC_STAGING/MusicDashboard/Views/PhotosBehaviorView.swift" \
-    "$SRC_STAGING/MusicDashboard/Views/PhotosPlacesView.swift" \
-    "$SRC_STAGING/MusicDashboard/Views/PhotosAuraView.swift" \
-    "$SRC_STAGING/MusicDashboard/MusicDashboardApp.swift"
+    "$SRC_STAGING/AuraApp/Models.swift" \
+    "$SRC_STAGING/AuraApp/MusicLibraryManager.swift" \
+    "$SRC_STAGING/AuraApp/PhotosLibraryManager.swift" \
+    "$SRC_STAGING/AuraApp/GlassCard.swift" \
+    "$SRC_STAGING/AuraApp/Views/MainView.swift" \
+    "$SRC_STAGING/AuraApp/Views/OverviewDashboardView.swift" \
+    "$SRC_STAGING/AuraApp/Views/ListeningHabitsView.swift" \
+    "$SRC_STAGING/AuraApp/Views/TimeMachineView.swift" \
+    "$SRC_STAGING/AuraApp/Views/ArtistHallView.swift" \
+    "$SRC_STAGING/AuraApp/Views/AuraProfileView.swift" \
+    "$SRC_STAGING/AuraApp/Views/TemporalRhythmsView.swift" \
+    "$SRC_STAGING/AuraApp/Views/PhotosOverviewView.swift" \
+    "$SRC_STAGING/AuraApp/Views/PhotosBehaviorView.swift" \
+    "$SRC_STAGING/AuraApp/Views/PhotosPlacesView.swift" \
+    "$SRC_STAGING/AuraApp/Views/PhotosAuraView.swift" \
+    "$SRC_STAGING/AuraApp/MusicDashboardApp.swift"
 
 rm -rf "$SRC_STAGING"
 
@@ -107,7 +107,7 @@ echo -e "${GREEN}✓ Compilation successful.${NC}"
 cp "$PLIST_FILE" "$APP_BUNDLE/Contents/Info.plist"
 
 # 5b. Generate .icns app icon from AppIcon.png if provided
-ICON_SOURCE="$SOURCE_DIR/MusicDashboard/AppIcon.png"
+ICON_SOURCE="$SOURCE_DIR/AuraApp/AppIcon.png"
 if [ -f "$ICON_SOURCE" ]; then
     echo -e "${YELLOW}Generating app icon from AppIcon.png...${NC}"
     ICONSET="$BUILD_DIR/AppIcon.iconset"
@@ -124,15 +124,15 @@ if [ -f "$ICON_SOURCE" ]; then
     sips -z 1024 1024 "$ICON_SOURCE" --out "$ICONSET/icon_512x512@2x.png"> /dev/null
     iconutil -c icns "$ICONSET" -o "$APP_BUNDLE/Contents/Resources/AppIcon.icns"
     cp "$ICON_SOURCE" "$APP_BUNDLE/Contents/Resources/AppIcon.png"
-    if [ -f "$SOURCE_DIR/MusicDashboard/BervosLogo.png" ]; then
-        cp "$SOURCE_DIR/MusicDashboard/BervosLogo.png" "$APP_BUNDLE/Contents/Resources/BervosLogo.png"
+    if [ -f "$SOURCE_DIR/AuraApp/BervosLogo.png" ]; then
+        cp "$SOURCE_DIR/AuraApp/BervosLogo.png" "$APP_BUNDLE/Contents/Resources/BervosLogo.png"
     fi
     echo -e "${GREEN}✓ App icon generated and bundled.${NC}"
 fi
 
 # 6. Deep ad-hoc code sign --deep covers nested binaries/frameworks
 echo -e "${YELLOW}Code signing deep ad-hoc...${NC}"
-ENTITLEMENTS="$SOURCE_DIR/MusicDashboard/MusicDashboard.entitlements"
+ENTITLEMENTS="$SOURCE_DIR/AuraApp/MusicDashboard.entitlements"
 if [ -f "$ENTITLEMENTS" ]; then
     codesign --force --deep --options runtime \
         --entitlements "$ENTITLEMENTS" \

@@ -26,8 +26,8 @@ jobs:
 
       - name: Inject Version and Copy DMG to Website Assets
         run: |
-          # Extract version from MusicDashboard Info.plist using PlistBuddy
-          VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" MusicDashboard/Info.plist)
+          # Extract version from AuraApp Info.plist using PlistBuddy
+          VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" AuraApp/Info.plist)
           echo "Injecting version $VERSION into web files..."
           sed -i '' "s/__AURA_VERSION__/$VERSION/g" website/public/app.js
           sed -i '' "s/__AURA_VERSION__/$VERSION/g" website/public/index.html

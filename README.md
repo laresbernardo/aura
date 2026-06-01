@@ -105,7 +105,7 @@ Aura is developed by **[BERVOS](https://bervos.org)**.
 
 <p align="center">
   <a href="https://bervos.org">
-    <img src="MusicDashboard/BervosLogo.png" alt="BERVOS Logo" width="120" />
+    <img src="AuraApp/BervosLogo.png" alt="BERVOS Logo" width="120" />
   </a>
 </p>
 
