@@ -49,3 +49,7 @@ ExportOptions.plist
 *.iml
 .vscode/
 *.code-workspace
+
+# ─── Web Staging Assets (never commit compiled binaries) ──────────────────────
+website/public/assets/Aura.dmg
+.firebase/

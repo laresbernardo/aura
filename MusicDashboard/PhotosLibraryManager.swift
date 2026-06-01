@@ -24,7 +24,7 @@ struct Photo: Codable, Identifiable, Hashable {
     
     // Additional Properties
     let isLivePhoto: Bool
-    let cameraModel: String?
+    var cameraModel: String?
     
     enum CodingKeys: String, CodingKey {
         case id, filename, dateAdded, latitude, longitude, altitude, width, height, isFavorite, cityName, countryName, isLivePhoto, cameraModel
@@ -180,19 +180,39 @@ class PhotosLibraryManager: ObservableObject {
         do {
             let data = try Data(contentsOf: cacheURL)
             var cached = try JSONDecoder().decode([Photo].self, from: data)
+            var cacheUpdatedNeeded = false
             
-            // Clean altitudes to ensure only valid land-level elevations are cataloged
+            // Clean altitudes and resolve missing cameraModel in cached items
             for idx in 0..<cached.count {
+                // 1. Clean altitudes
                 if let alt = cached[idx].altitude {
                     if abs(alt) < 0.01 || alt < -100.0 || alt > 8500.0 {
                         cached[idx].altitude = nil
+                        cacheUpdatedNeeded = true
                     }
+                }
+                
+                // 2. Resolve missing or nil cameraModel
+                if cached[idx].cameraModel == nil {
+                    cached[idx].cameraModel = cleanCameraModel(
+                        kvcModel: nil,
+                        filename: cached[idx].filename,
+                        isLivePhoto: cached[idx].isLivePhoto,
+                        width: cached[idx].width,
+                        height: cached[idx].height
+                    )
+                    cacheUpdatedNeeded = true
                 }
             }
             
             if !cached.isEmpty {
                 self.allPhotos = cached
                 self.applyFilter()
+                
+                // Save clean cache back to disk if we made corrections
+                if cacheUpdatedNeeded {
+                    savePhotosToCache()
+                }
             }
         } catch {
             // Silently fall back if the cache is corrupt or missing
@@ -200,27 +220,27 @@ class PhotosLibraryManager: ObservableObject {
     }
     
     nonisolated private func cleanCameraModel(kvcModel: String?, filename: String, isLivePhoto: Bool, width: Int, height: Int) -> String {
+        let lowerFn = filename.lowercased()
+        
+        // Resolve camera model from EXIF metadata if present
         if let kvc = kvcModel?.trimmingCharacters(in: .whitespacesAndNewlines), !kvc.isEmpty {
-            // Keep the specific iPhone/GoPro versions if provided in EXIF metadata
-            if (kvc.localizedCaseInsensitiveContains("HERO") || kvc.localizedCaseInsensitiveContains("GoPro")) && !kvc.localizedCaseInsensitiveContains("GoPro") {
-                return "GoPro \(kvc)"
+            let lowerKvc = kvc.lowercased()
+            if lowerKvc.contains("gopro") || lowerKvc.contains("hero") {
+                if lowerKvc.contains("gopro") {
+                    return kvc // e.g. "GoPro HERO10 Black"
+                } else {
+                    return "GoPro \(kvc)" // e.g. "GoPro HERO9 Black"
+                }
+            }
+            if lowerKvc.contains("iphone") || lowerKvc.contains("apple") {
+                return "iPhone"
             }
             return kvc
         }
         
-        let lower = filename.lowercased()
-        let ext = (filename as NSString).pathExtension.lowercased()
-        
-        if lower.hasPrefix("gopr") || lower.hasPrefix("gp") || lower.hasPrefix("g0") || lower.contains("gopro") {
+        // Fallback to filename heuristics (GoPro: GOPR, GP, G0, gopro; otherwise iPhone)
+        if lowerFn.hasPrefix("gopr") || lowerFn.hasPrefix("gp") || lowerFn.hasPrefix("g0") || lowerFn.contains("gopro") {
             return "GoPro HERO"
-        }
-        
-        if ext == "heic" || isLivePhoto {
-            return "iPhone"
-        }
-        
-        if lower.hasPrefix("img_") {
-            return "iPhone"
         }
         
         return "iPhone"
@@ -357,11 +377,16 @@ class PhotosLibraryManager: ObservableObject {
             fetchResult.enumerateObjects { (asset, index, stop) in
                 let id = asset.localIdentifier
                 
-                // Super safe exception-guarded filename lookup using responds(to:)
+                // Super safe exception-guarded filename lookup using responds(to:) with robust public PHAssetResource fallback
                 var filename = "IMG_\(index).jpg"
-                if asset.responds(to: NSSelectorFromString("filename")) {
-                    if let name = asset.value(forKey: "filename") as? String {
-                        filename = name
+                if asset.responds(to: NSSelectorFromString("filename")),
+                   let name = asset.value(forKey: "filename") as? String,
+                   !name.isEmpty {
+                    filename = name
+                } else {
+                    let resources = PHAssetResource.assetResources(for: asset)
+                    if let originalName = resources.first?.originalFilename, !originalName.isEmpty {
+                        filename = originalName
                     }
                 }
                 

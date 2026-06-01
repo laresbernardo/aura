@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Aura — macOS Music & Photos Analytics Dashboard</title>
+  
+  <!-- SEO Best Practices -->
+  <meta name="description" content="Aura is a native macOS SwiftUI app that transforms your Apple Music and Photos libraries into beautiful, premium interactive analytics dashboards. 100% local, offline, and private.">
+  <meta name="keywords" content="macOS app, Apple Music analytics, Photo analytics, Spotify Wrapped mac, Photo library insights, SwiftUI, open source, BERVOS">
+  <meta name="author" content="BERVOS">
+  <meta name="robots" content="index, follow">
+  
+  <!-- Open Graph / Social Media -->
+  <meta property="og:title" content="Aura — macOS Music & Photos Analytics Dashboard">
+  <meta property="og:description" content="Get premium analytics for your local macOS Music and Apple Photos libraries. 100% private and offline. Developed by BERVOS.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://aura.bervos.org">
+  <meta property="og:image" content="assets/AppIcon.png">
+  
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" href="assets/AppIcon.png">
+  
+  <!-- Stylesheets -->
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="music-mode">
+
+  <!-- Ambient glowing background blobs -->
+  <div class="ambient-background" aria-hidden="true">
+    <div class="blob blob-1"></div>
+    <div class="blob blob-2"></div>
+  </div>
+
+  <div class="container">
+    
+    <!-- Floating Header / Navigation -->
+    <header>
+      <nav class="header-glass" aria-label="Main Navigation">
+        <a href="./" class="brand" id="brand-link">
+          <img src="assets/AppIcon.png" alt="Aura Logo" class="brand-icon">
+          <span class="brand-name">Aura</span>
+        </a>
+        <div class="nav-actions">
+          <a href="https://github.com/laresbernardo/aura" class="btn btn-secondary" id="nav-github-btn" target="_blank" rel="noopener">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+            </svg>
+            GitHub
+          </a>
+          <a href="#download" class="btn btn-primary" id="nav-download-btn">Download</a>
+        </div>
+      </nav>
+    </header>
+
+    <!-- Main Content Area -->
+    <main>
+      
+      <!-- Hero Section -->
+      <section class="hero" id="hero-section">
+        <span class="badge" id="platform-badge">
+          <span class="badge-dot" aria-hidden="true"></span>
+          macOS Native
+        </span>
+        
+        <h1>Your Music & Photos.<br><span>Beautifully Visualized.</span></h1>
+        
+        <p class="hero-subtitle">
+          Aura is a gorgeous local dashboard that turns your macOS Music and Apple Photos libraries into private, interactive insights. Spot discovery trends, map your travels, and rediscover old favorites.
+        </p>
+        
+        <div class="hero-actions" id="download">
+          <a href="/assets/Aura.dmg" class="btn btn-primary" id="download-btn">
+            <!-- macOS Apple Logo -->
+            <svg width="20" height="20" viewBox="0 0 170 170" aria-hidden="true">
+              <path d="M150.37 130.25c-2.45 5.66-5.35 10.87-8.71 15.66-4.58 6.53-8.33 11.05-11.22 13.56-4.48 4.12-9.28 6.23-14.42 6.35-3.69 0-8.14-1.05-13.32-3.18-5.19-2.12-9.97-3.17-14.34-3.17-4.58 0-9.49 1.05-14.75 3.17-5.26 2.13-9.5 3.24-12.74 3.35-4.37.13-9.13-1.9-14.28-6.1-3.48-2.84-7.51-7.7-12.08-14.59-8.39-12.75-14.77-27.88-19.13-45.39-4.37-17.5-6.55-33.37-6.55-47.59 0-19.89 4.98-35.15 14.94-45.79 9.96-10.65 22.06-16.09 36.31-16.33 5.48 0 11.75 1.57 18.8 4.7 7.05 3.14 11.53 4.7 13.44 4.7 1.68 0 6.04-1.57 13.1-4.7 7.05-3.13 13.54-4.59 19.47-4.4 14.54.38 25.99 5.8 34.35 16.27 8.35 10.47 12.87 23.33 13.55 38.58-15.11 7.27-22.56 17.84-22.37 31.7 0.19 11.18 4.09 20.62 11.69 28.32 7.6 7.7 16.89 12.02 27.88 12.98-2.69 7.83-6.04 15.65-10.06 23.47zM119.22 28.74c0-7.72 2.76-14.88 8.28-21.49 5.52-6.61 12.42-10.65 20.7-12.13 0.2 1.8 0.3 3.35 0.3 4.67 0 7.53-2.83 14.7-8.48 21.51-5.66 6.81-12.63 11.11-20.91 12.91-0.19-1.8-.29-3.63-.29-5.47z" fill="currentColor"/>
+            </svg>
+            Download for macOS (.dmg)
+          </a>
+          
+          <div class="app-version-info">
+            Version <span id="app-version-text">__AURA_VERSION__</span> &bull; macOS 13+
+          </div>
+        </div>
+      </section>
+
+      <!-- Segmented Control Mode Switcher -->
+      <section class="mode-selector" aria-label="Dashboard Mode Switcher">
+        <div class="tabs-wrapper">
+          <button class="tab-btn active" id="tab-music">
+            <span aria-hidden="true">🎵</span> Music Mode
+          </button>
+          <button class="tab-btn" id="tab-photos">
+            <span aria-hidden="true">📸</span> Photos Mode
+          </button>
+        </div>
+      </section>
+
+      <!-- Dynamic Interactive Showcase Card -->
+      <section class="preview-showcase" id="features-showcase">
+        <div class="glass-card">
+          <div class="preview-grid">
+            
+            <!-- Left Panel: Content swap -->
+            <div class="preview-info">
+              
+              <!-- Music Mode Text -->
+              <div class="mode-content music-only">
+                <h2>🎵 Deep Music Insights</h2>
+                <p style="margin-bottom: 20px;">
+                  Explore your listening history and rediscover tracks hidden in your Apple Music library. Aura reads your library XML directly with secure offline parsing.
+                </p>
+                <ul class="features-list">
+                  <li>
+                    <svg fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3"/></svg>
+                    <span><strong>Overview Stats:</strong> Instantly check your total tracks and estimate your cumulative lifetime listening hours.</span>
+                  </li>
+                  <li>
+                    <svg fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+                    <span><strong>Listening Habits:</strong> Review your all-time top 20 most played tracks, era composition distribution, and skip rate patterns.</span>
+                  </li>
+                  <li>
+                    <svg fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                    <span><strong>Time Machine:</strong> See a month-by-month timeline of when songs were added, highlighting your most active discovery periods.</span>
+                  </li>
+                  <li>
+                    <svg fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"/></svg>
+                    <span><strong>Forgotten Gems:</strong> Re-discover tracks you rated 4 or 5 stars but haven't played in over two years.</span>
+                  </li>
+                </ul>
+              </div>
+
+              <!-- Photos Mode Text -->
+              <div class="mode-content photos-only">
+                <h2>📸 A Photographic Journey</h2>
+                <p style="margin-bottom: 20px;">
+                  Explore your photography patterns, visited destinations, and camera statistics securely. Integrates natively with macOS PhotoKit in milliseconds.
+                </p>
+                <ul class="features-list">
+                  <li>
+                    <svg fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"/><circle cx="12" cy="13" r="4"/></svg>
+                    <span><strong>Media & Gear:</strong> Donut breakdown of photos, videos, and Live Photos, paired with detailed camera body distribution.</span>
+                  </li>
+                  <li>
+                    <svg fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/><path stroke-linecap="round" stroke-linejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                    <span><strong>Visited Destinations:</strong> Track total cities and countries visited, along with an interactive most-photographed places leaderboard.</span>
+                  </li>
+                  <li>
+                    <svg fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/></svg>
+                    <span><strong>Elevation Profile:</strong> Categorize your photos by altitude categories, identifying photos captured at sea level up to mountain ranges.</span>
+                  </li>
+                  <li>
+                    <svg fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M10 6H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V8a2 2 0 00-2-2h-5m-4 0V5a2 2 0 114 0v1m-4 0a2 2 0 012-2h2a2 2 0 012 2v1m-6 0h6"/></svg>
+                    <span><strong>Photography Persona:</strong> Glowing character profile cards (e.g. "The Visual Explorer") matching your photographic habits.</span>
+                  </li>
+                </ul>
+              </div>
+
+            </div>
+
+            <!-- Right Panel: App Mockup -->
+            <div class="mockup-container">
+              <div class="app-mockup" aria-hidden="true">
+                
+                <!-- OS Header Window Dots -->
+                <div class="window-header">
+                  <div class="dot dot-red"></div>
+                  <div class="dot dot-yellow"></div>
+                  <div class="dot dot-green"></div>
+                </div>
+                
+                <!-- Mockup Card 1: Overview Summary -->
+                <div class="mockup-card">
+                  <div class="mockup-title">
+                    <span id="mockup-title-1">Lifetime Listening Time</span>
+                    <span style="opacity: 0.5;">All-Time</span>
+                  </div>
+                  <div class="mockup-main-val" id="mockup-val-1">
+                    82,410 <span style="font-size: 16px; font-weight: 500; color:var(--text-muted);" id="mockup-unit-1">min</span>
+                  </div>
+                </div>
+
+                <!-- Mockup Card 2: Distributions -->
+                <div class="mockup-card">
+                  <div class="mockup-title">
+                    <span id="mockup-title-2">Genre Composition</span>
+                    <span style="opacity: 0.5;">Library %</span>
+                  </div>
+                  
+                  <div class="mini-chart">
+                    
+                    <!-- Progress Bar Row 1 -->
+                    <div class="chart-bar-row">
+                      <div class="chart-label">
+                        <span id="mockup-row-1-label">Alternative & Indie</span>
+                        <span id="mockup-row-1-pct">85%</span>
+                      </div>
+                      <div class="chart-progress-bg">
+                        <div class="chart-progress-fill" id="mockup-row-1-fill" style="width: 85%;"></div>
+                      </div>
+                    </div>
+
+                    <!-- Progress Bar Row 2 -->
+                    <div class="chart-bar-row">
+                      <div class="chart-label">
+                        <span id="mockup-row-2-label">Electronic & House</span>
+                        <span id="mockup-row-2-pct">60%</span>
+                      </div>
+                      <div class="chart-progress-bg">
+                        <div class="chart-progress-fill" id="mockup-row-2-fill" style="width: 60%;"></div>
+                      </div>
+                    </div>
+
+                    <!-- Progress Bar Row 3 -->
+                    <div class="chart-bar-row">
+                      <div class="chart-label">
+                        <span id="mockup-row-3-label">Classical</span>
+                        <span id="mockup-row-3-pct">45%</span>
+                      </div>
+                      <div class="chart-progress-bg">
+                        <div class="chart-progress-fill" id="mockup-row-3-fill" style="width: 45%;"></div>
+                      </div>
+                    </div>
+
+                  </div>
+                </div>
+
+                <!-- Mockup Card 3: Highlight Detail -->
+                <div class="mockup-card glow-card-mockup">
+                  <div class="mockup-title" style="color: var(--accent);">
+                    <span id="mockup-title-3-text">💎 Forgotten Gem</span>
+                    <span style="opacity: 0.5; color: var(--text-secondary);">Aura Spotlight</span>
+                  </div>
+                  
+                  <!-- Music Mode Content -->
+                  <div id="mockup-music-body" style="margin-top: 4px;">
+                    <div class="persona-header">
+                      <div class="persona-avatar">🎵</div>
+                      <div class="persona-details">
+                        <h4>Intro</h4>
+                        <p>The xx • Last played 842 days ago</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Photos Mode Content (hidden by default) -->
+                  <div id="mockup-photos-body" class="hidden" style="margin-top: 4px;">
+                    <div class="persona-header">
+                      <div class="persona-avatar" style="font-size:12px;">🗺️</div>
+                      <div class="persona-details">
+                        <h4>The Visual Explorer</h4>
+                        <p>High travel index • 12 Countries visited</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </section>
+
+      <!-- Benefits / Features Pillars -->
+      <section class="benefits" aria-label="Application Pillars">
+        
+        <!-- Pillar 1: Privacy -->
+        <article class="benefit-card">
+          <div class="benefit-icon">
+            <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
+          </div>
+          <h3>100% Private & Local</h3>
+          <p>
+            Your personal analytics should be yours alone. Aura runs entirely offline, parsing your library databases locally inside macOS secure sandbox structures. Zero servers, zero uploads.
+          </p>
+        </article>
+
+        <!-- Pillar 2: Native SwiftUI -->
+        <article class="benefit-card">
+          <div class="benefit-icon">
+            <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+          </div>
+          <h3>Native macOS Swift</h3>
+          <p>
+            Written in pure SwiftUI without third-party frameworks. Queries thousands of photos asynchronously in under 50ms using Apple PhotoKit and parses Music XML standard plists in milliseconds.
+          </p>
+        </article>
+
+        <!-- Pillar 3: Transparent Open Source -->
+        <article class="benefit-card">
+          <div class="benefit-icon">
+            <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+          </div>
+          <h3>Completely Free & Open</h3>
+          <p>
+            No hidden subscriptions, no ads, and no paywalls. The Swift source code is fully open on GitHub, enabling complete security audatibility and community transparency.
+          </p>
+        </article>
+
+      </section>
+
+      <!-- Transparency Banner -->
+      <section class="github-transparency" aria-label="GitHub Transparency Link">
+        <div class="github-banner">
+          <div class="github-content">
+            <h2>Fully Auditable on GitHub</h2>
+            <p>
+              We believe in complete transparency. Every single line of code that runs in Aura is publicly available for review. Compile the application yourself using our automated build script, inspect sandbox definitions, or contribute new Swift Charts.
+            </p>
+          </div>
+          <a href="https://github.com/laresbernardo/aura" class="btn btn-secondary" target="_blank" rel="noopener" style="padding: 14px 28px; font-size: 15px; border-radius: 14px;">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" style="margin-right: 8px;">
+              <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+            </svg>
+            View Swift Source
+          </a>
+        </div>
+      </section>
+
+    </main>
+
+    <!-- Footer -->
+    <footer>
+      <div class="footer-content">
+        <a href="https://bervos.org" class="bervos-logo-link" target="_blank" rel="noopener" aria-label="BERVOS Website">
+          <img src="assets/BervosLogo.png" alt="BERVOS Logo" class="bervos-logo">
+        </a>
+        <div class="footer-text">
+          <p>Aura is developed by <a href="https://bervos.org" target="_blank" rel="noopener">BERVOS</a>. Distributed under the MIT License.</p>
+        </div>
+      </div>
+    </footer>
+
+  </div>
+
+  <!-- Load script logic with ES modules supporting async Firebase CDN hooks -->
+  <script type="module" src="app.js"></script>
+</body>
+</html>

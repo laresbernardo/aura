@@ -150,23 +150,27 @@ echo -e "${GREEN}✓ Signed and quarantine-cleared.${NC}"
 # never touched a cloud volume into /Applications, then strip xattr again
 # on the destination and re-sign in place — belt AND suspenders.
 
-echo -e "${YELLOW}Installing Aura → /Applications ...${NC}"
-rm -rf "$INSTALL_DEST"
-ditto "$APP_BUNDLE" "$INSTALL_DEST"
+if [ "$CI" != "true" ]; then
+    echo -e "${YELLOW}Installing Aura → /Applications ...${NC}"
+    rm -rf "$INSTALL_DEST"
+    ditto "$APP_BUNDLE" "$INSTALL_DEST"
 
-# Strip quarantine on the installed copy
-xattr -rc "$INSTALL_DEST"
+    # Strip quarantine on the installed copy
+    xattr -rc "$INSTALL_DEST"
 
-# Re-sign the installed copy in place
-if [ -f "$ENTITLEMENTS" ]; then
-    codesign --force --deep --options runtime \
-        --entitlements "$ENTITLEMENTS" \
-        --sign - "$INSTALL_DEST"
+    # Re-sign the installed copy in place
+    if [ -f "$ENTITLEMENTS" ]; then
+        codesign --force --deep --options runtime \
+            --entitlements "$ENTITLEMENTS" \
+            --sign - "$INSTALL_DEST"
+    else
+        codesign --force --deep --sign - "$INSTALL_DEST"
+    fi
+
+    echo -e "${GREEN}✓ Aura installed to /Applications/Aura.app${NC}"
 else
-    codesign --force --deep --sign - "$INSTALL_DEST"
+    echo -e "${GREEN}✓ CI detected. Skipping direct install to /Applications.${NC}"
 fi
-
-echo -e "${GREEN}✓ Aura installed to /Applications/Aura.app${NC}"
 
 # ─── ALSO BUILD DMG FOR DISTRIBUTION ────────────────────────────────────────
 echo -e "${YELLOW}Packaging Aura.dmg for distribution...${NC}"
@@ -188,10 +192,14 @@ rm -rf "$BUILD_DIR"
 
 # ─── LAUNCH ──────────────────────────────────────────────────────────────────
 echo -e "${BLUE}==================================================${NC}"
-echo -e "${GREEN}🚀 BUILD & INSTALL SUCCESSFUL!${NC}"
-echo -e "${GREEN}Aura is installed at: /Applications/Aura.app${NC}"
+echo -e "${GREEN}🚀 BUILD SYSTEM COMPLETED SUCCESSFULLY!${NC}"
 echo -e "${GREEN}DMG for sharing:      $FINAL_DMG${NC}"
 echo -e "${BLUE}==================================================${NC}"
 echo ""
-echo -e "Launching Aura..."
-open "$INSTALL_DEST"
+
+if [ "$CI" != "true" ]; then
+    echo -e "Launching Aura..."
+    open "$INSTALL_DEST"
+else
+    echo -e "${GREEN}✓ CI detected. Skipping app launch.${NC}"
+fi
