@@ -14,7 +14,7 @@ struct PhotosBehaviorView: View {
             VStack(alignment: .leading, spacing: 28) {
                 // Header
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Capture Behavior")
+                    Text("Behavior")
                         .font(.system(.title, design: .rounded))
                         .fontWeight(.bold)
                         .foregroundColor(.white)

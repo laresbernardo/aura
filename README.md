@@ -42,7 +42,7 @@ Think of it as **Spotify Wrapped and visual library insights, live and always up
 - **Media composition** (Still Photos, Videos, Live Photos) donut distribution
 - **Capture history timeline** showing library growth month-by-month
 
-### 📊 Capture Behavior & Gear
+### 📊 Behavior & Gear
 - **24-hour Capture Clock** showing hourly capture density distribution
 - **Camera Gear** distribution (e.g. Sony A7R V, Fujifilm X-T5, DJI Mavic, iPhone)
 - **Crop aspect ratio** composition (Panoramic, Landscape, Portrait, Square)

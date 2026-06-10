@@ -27,7 +27,7 @@ struct PhotosPlacesView: View {
             VStack(alignment: .leading, spacing: 28) {
                 // Header
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Places & Journeys")
+                    Text("Places")
                         .font(.system(.title, design: .rounded))
                         .fontWeight(.bold)
                         .foregroundColor(.white)

@@ -9,6 +9,113 @@ class PassThroughView: NSView {
     }
 }
 
+// MARK: - Heatmap Overlay Renderer for Blended Density Areas
+class HeatmapOverlayRenderer: MKOverlayRenderer {
+    let count: Int
+    let maxCount: Int
+    
+    init(circle: MKCircle, count: Int, maxCount: Int) {
+        self.count = count
+        self.maxCount = maxCount
+        super.init(overlay: circle)
+    }
+    
+    override func draw(_ mapRect: MKMapRect, zoomScale: MKZoomScale, in context: CGContext) {
+        let rect = self.rect(for: self.overlay.boundingMapRect)
+        
+        context.saveGState()
+        
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        
+        // Logarithmic scaling for relative density
+        let ratio: Double
+        if maxCount <= 5 {
+            ratio = maxCount > 1 ? Double(count) / Double(maxCount) : 1.0
+        } else {
+            ratio = count > 1 ? log2(Double(count)) / log2(Double(maxCount)) : (count > 0 ? 0.05 : 0.0)
+        }
+        
+        // Dynamic relative blending heatmap gradient based on active maxCount density
+        let colors: [CGColor]
+        if maxCount <= 5 {
+            // Absolute fallbacks for very low counts (to avoid making 1 photo show as intense red)
+            if count <= 1 {
+                colors = [
+                    NSColor.systemTeal.withAlphaComponent(0.45).cgColor,
+                    NSColor.systemTeal.withAlphaComponent(0.18).cgColor,
+                    NSColor.systemTeal.withAlphaComponent(0.0).cgColor
+                ]
+            } else if count <= 3 {
+                colors = [
+                    NSColor.systemOrange.withAlphaComponent(0.55).cgColor,
+                    NSColor.systemOrange.withAlphaComponent(0.30).cgColor,
+                    NSColor.systemYellow.withAlphaComponent(0.12).cgColor,
+                    NSColor.systemYellow.withAlphaComponent(0.0).cgColor
+                ]
+            } else {
+                colors = [
+                    NSColor.systemRed.withAlphaComponent(0.65).cgColor,
+                    NSColor.systemRed.withAlphaComponent(0.50).cgColor,
+                    NSColor.systemOrange.withAlphaComponent(0.35).cgColor,
+                    NSColor.systemYellow.withAlphaComponent(0.15).cgColor,
+                    NSColor.systemYellow.withAlphaComponent(0.0).cgColor
+                ]
+            }
+        } else {
+            // Relative dynamic scaling
+            if ratio >= 0.65 {
+                // High relative density: Intense Red core
+                colors = [
+                    NSColor.systemRed.withAlphaComponent(0.65).cgColor,
+                    NSColor.systemRed.withAlphaComponent(0.50).cgColor,
+                    NSColor.systemOrange.withAlphaComponent(0.35).cgColor,
+                    NSColor.systemYellow.withAlphaComponent(0.15).cgColor,
+                    NSColor.systemYellow.withAlphaComponent(0.0).cgColor
+                ]
+            } else if ratio >= 0.20 {
+                // Medium relative density: Orange-Yellow glow
+                colors = [
+                    NSColor.systemOrange.withAlphaComponent(0.55).cgColor,
+                    NSColor.systemOrange.withAlphaComponent(0.30).cgColor,
+                    NSColor.systemYellow.withAlphaComponent(0.12).cgColor,
+                    NSColor.systemYellow.withAlphaComponent(0.0).cgColor
+                ]
+            } else {
+                // Low relative density: Crisp Teal glow
+                colors = [
+                    NSColor.systemTeal.withAlphaComponent(0.45).cgColor,
+                    NSColor.systemTeal.withAlphaComponent(0.18).cgColor,
+                    NSColor.systemTeal.withAlphaComponent(0.0).cgColor
+                ]
+            }
+        }
+        
+        let locations: [CGFloat] = colors.count == 3 ? [0.0, 0.5, 1.0] : (colors.count == 4 ? [0.0, 0.35, 0.70, 1.0] : [0.0, 0.18, 0.45, 0.75, 1.0])
+        
+        guard let gradient = CGGradient(colorsSpace: colorSpace, colors: colors as CFArray, locations: locations) else {
+            context.restoreGState()
+            return
+        }
+        
+        let center = CGPoint(x: rect.midX, y: rect.midY)
+        let radius = rect.width / 2.0
+        
+        context.addEllipse(in: rect)
+        context.clip()
+        
+        context.drawRadialGradient(
+            gradient,
+            startCenter: center,
+            startRadius: 0.0,
+            endCenter: center,
+            endRadius: radius,
+            options: .drawsAfterEndLocation
+        )
+        
+        context.restoreGState()
+    }
+}
+
 // MARK: - Mapped Cluster Model
 struct MappedCluster: Identifiable, Equatable {
     let id: String // City, Country or formatted Coordinate
@@ -55,6 +162,11 @@ struct MappedCluster: Identifiable, Equatable {
     }
 }
 
+// MARK: - Heatmap Circle Subclass for Custom Rendering Data
+class HeatmapCircle: MKCircle {
+    var clusterCount: Int = 1
+}
+
 // MARK: - Native MKMapView Wrapper with Pulsing Heatmap Circles
 struct HeatmapMapView: NSViewRepresentable {
     let clusters: [MappedCluster]
@@ -62,6 +174,7 @@ struct HeatmapMapView: NSViewRepresentable {
     @Binding var mapType: MKMapType
     @Binding var centerTrigger: MKCoordinateRegion?
     @Binding var currentRegion: MKCoordinateRegion
+    let visualizationMode: PhotosHeatmapView.VisualizationMode
     
     func makeNSView(context: Context) -> MKMapView {
         let mapView = MKMapView()
@@ -79,6 +192,20 @@ struct HeatmapMapView: NSViewRepresentable {
     func updateNSView(_ nsView: MKMapView, context: Context) {
         context.coordinator.parent = self
         nsView.mapType = mapType
+        
+        // Calculate viewport-relative maxCount
+        let visibleMapRect = nsView.visibleMapRect
+        let visibleClusters = clusters.filter { cluster in
+            visibleMapRect.contains(MKMapPoint(cluster.coordinate))
+        }
+        let maxCount = visibleClusters.map { $0.count }.max() ?? 1
+        
+        if context.coordinator.lastMaxCount != maxCount {
+            context.coordinator.lastMaxCount = maxCount
+            // Force redraw of overlays and annotations with new relative scale
+            nsView.removeOverlays(nsView.overlays)
+            nsView.removeAnnotations(nsView.annotations)
+        }
         
         // 1. Sync Annotations
         let existingAnnotations = nsView.annotations.compactMap { $0 as? PhotoClusterAnnotation }
@@ -98,6 +225,47 @@ struct HeatmapMapView: NSViewRepresentable {
         if existingKeys != newKeys || existingAnnotations.map({ $0.cluster.count }) != newAnnotations.map({ $0.cluster.count }) {
             nsView.removeAnnotations(nsView.annotations)
             nsView.addAnnotations(newAnnotations)
+        }
+        
+        // 1b. Sync Overlays (Heatmap mode only)
+        if visualizationMode == .heatmap {
+            let delta = nsView.region.span.latitudeDelta
+            let baseRadius: Double
+            if delta > 40.0 {
+                baseRadius = 300_000
+            } else if delta > 8.0 {
+                baseRadius = 100_000
+            } else if delta > 2.0 {
+                baseRadius = 25_000
+            } else if delta > 0.4 {
+                baseRadius = 4_000
+            } else if delta > 0.08 {
+                baseRadius = 500
+            } else {
+                baseRadius = 70
+            }
+            
+            let existingCircles = nsView.overlays.compactMap { $0 as? HeatmapCircle }
+            let existingCircleKeys = Set(existingCircles.map { "\($0.coordinate.latitude),\($0.coordinate.longitude),\($0.clusterCount)" })
+            let newCircleKeys = Set(clusters.map { "\($0.coordinate.latitude),\($0.coordinate.longitude),\($0.count)" })
+            
+            let existingBaseRadius = context.coordinator.lastBaseRadius
+            if existingCircleKeys != newCircleKeys || abs(existingBaseRadius - baseRadius) > 1.0 {
+                context.coordinator.lastBaseRadius = baseRadius
+                let newOverlays = clusters.map { cluster -> HeatmapCircle in
+                    let scale = 0.5 + log2(Double(cluster.count)) * 0.15
+                    let scaledRadius = baseRadius * scale
+                    let circle = HeatmapCircle(center: cluster.coordinate, radius: scaledRadius)
+                    circle.clusterCount = cluster.count
+                    return circle
+                }
+                nsView.removeOverlays(nsView.overlays)
+                nsView.addOverlays(newOverlays)
+            }
+        } else {
+            if !nsView.overlays.isEmpty {
+                nsView.removeOverlays(nsView.overlays)
+            }
         }
         
         // 2. Center/Zoom Trigger
@@ -128,6 +296,8 @@ struct HeatmapMapView: NSViewRepresentable {
     
     class Coordinator: NSObject, MKMapViewDelegate {
         var parent: HeatmapMapView
+        var lastMaxCount: Int = 1
+        var lastBaseRadius: Double = 0.0
         
         init(_ parent: HeatmapMapView) {
             self.parent = parent
@@ -148,10 +318,11 @@ struct HeatmapMapView: NSViewRepresentable {
             
             let count = clusterAnnotation.cluster.count
             let isSelected = (clusterAnnotation.cluster.id == parent.selectedCluster?.id)
+            let isHeatmapMode = (parent.visualizationMode == .heatmap)
             
-            // Calculate scale sizing based on photo count (log scale) - reduced size to prevent map clutter
-            let baseSize = CGFloat(max(10, min(30, 6 + log2(Double(count)) * 3.0)))
-            let finalSize = isSelected ? baseSize * 1.35 + 4 : baseSize
+            // Calculate scale sizing
+            let baseSize = isHeatmapMode ? CGFloat(10) : CGFloat(max(10, min(30, 6 + log2(Double(count)) * 3.0)))
+            let finalSize = isSelected ? (isHeatmapMode ? 16 : baseSize * 1.35 + 4) : baseSize
             
             annotationView?.frame = CGRect(x: 0, y: 0, width: finalSize, height: finalSize)
             
@@ -163,75 +334,124 @@ struct HeatmapMapView: NSViewRepresentable {
             let backingView = PassThroughView(frame: annotationView?.bounds ?? .zero)
             backingView.wantsLayer = true
             
-            // Determine density color theme
+            // Determine density color theme based on relative scale
+            let maxCount = self.lastMaxCount
+            
             let color: NSColor
-            if count <= 5 {
-                color = NSColor.systemTeal // Low density
-            } else if count <= 25 {
-                color = NSColor.systemOrange // Medium density
+            if maxCount <= 5 {
+                if count <= 1 {
+                    color = NSColor.systemTeal // Low density
+                } else if count <= 3 {
+                    color = NSColor.systemOrange // Medium density
+                } else {
+                    color = NSColor.systemRed // High density
+                }
             } else {
-                color = NSColor.systemRed // High density
+                let ratio = count > 1 ? log2(Double(count)) / log2(Double(maxCount)) : (count > 0 ? 0.05 : 0.0)
+                if ratio >= 0.65 {
+                    color = NSColor.systemRed // High relative density
+                } else if ratio >= 0.20 {
+                    color = NSColor.systemOrange // Medium relative density
+                } else {
+                    color = NSColor.systemTeal // Low relative density
+                }
             }
             
-            // Softer opacity, border, and shadows to render as a soft heatmap layer
-            backingView.layer?.backgroundColor = isSelected ? color.withAlphaComponent(0.7).cgColor : color.withAlphaComponent(0.22).cgColor
-            backingView.layer?.cornerRadius = finalSize / 2.0
-            backingView.layer?.borderColor = isSelected ? NSColor.white.cgColor : color.withAlphaComponent(0.45).cgColor
-            backingView.layer?.borderWidth = isSelected ? 1.5 : 0.8
-            
-            // Glowing shadow effect
-            backingView.layer?.shadowColor = (isSelected ? NSColor.white : color).cgColor
-            backingView.layer?.shadowRadius = isSelected ? 8 : 3
-            backingView.layer?.shadowOpacity = isSelected ? 0.85 : 0.35
-            backingView.layer?.shadowOffset = .zero
-            
-            // Pulsing Ring Animation - only show if selected or larger cluster (count >= 10)
-            if isSelected || count >= 10 {
-                let pulseLayer = CALayer()
-                pulseLayer.frame = backingView.bounds
-                pulseLayer.cornerRadius = finalSize / 2.0
-                pulseLayer.backgroundColor = isSelected ? NSColor.white.withAlphaComponent(0.25).cgColor : color.withAlphaComponent(0.12).cgColor
-                pulseLayer.borderColor = isSelected ? NSColor.white.withAlphaComponent(0.6).cgColor : color.withAlphaComponent(0.35).cgColor
-                pulseLayer.borderWidth = isSelected ? 1.0 : 0.6
+            if isHeatmapMode {
+                // In Heatmap mode, draw extremely subtle clickable dots on top of the blended area overlays
+                backingView.layer?.backgroundColor = isSelected ? color.withAlphaComponent(0.65).cgColor : color.withAlphaComponent(0.12).cgColor
+                backingView.layer?.cornerRadius = finalSize / 2.0
+                backingView.layer?.borderColor = isSelected ? NSColor.white.cgColor : color.withAlphaComponent(0.40).cgColor
+                backingView.layer?.borderWidth = isSelected ? 1.5 : 0.8
                 
-                let scaleAnim = CABasicAnimation(keyPath: "transform.scale")
-                scaleAnim.fromValue = 1.0
-                scaleAnim.toValue = isSelected ? 1.5 : 1.7
+                // Solid center white core dot
+                let coreDotSize = isSelected ? CGFloat(7) : CGFloat(4.5)
+                let coreDot = PassThroughView(frame: CGRect(
+                    x: (finalSize - coreDotSize) / 2.0,
+                    y: (finalSize - coreDotSize) / 2.0,
+                    width: coreDotSize,
+                    height: coreDotSize
+                ))
+                coreDot.wantsLayer = true
+                coreDot.layer?.backgroundColor = NSColor.white.cgColor
+                coreDot.layer?.cornerRadius = coreDotSize / 2.0
+                coreDot.layer?.shadowColor = NSColor.white.cgColor
+                coreDot.layer?.shadowRadius = isSelected ? 2.5 : 1.0
+                coreDot.layer?.shadowOpacity = 0.8
+                coreDot.layer?.shadowOffset = .zero
                 
-                let opacityAnim = CABasicAnimation(keyPath: "opacity")
-                opacityAnim.fromValue = isSelected ? 0.85 : 0.45
-                opacityAnim.toValue = 0.0
+                backingView.addSubview(coreDot)
+                annotationView?.addSubview(backingView)
+            } else {
+                // In Points mode, draw the full rich pulsing markers
+                backingView.layer?.backgroundColor = isSelected ? color.withAlphaComponent(0.7).cgColor : color.withAlphaComponent(0.22).cgColor
+                backingView.layer?.cornerRadius = finalSize / 2.0
+                backingView.layer?.borderColor = isSelected ? NSColor.white.cgColor : color.withAlphaComponent(0.45).cgColor
+                backingView.layer?.borderWidth = isSelected ? 1.5 : 0.8
                 
-                let animGroup = CAAnimationGroup()
-                animGroup.animations = [scaleAnim, opacityAnim]
-                animGroup.duration = isSelected ? 2.0 : 4.0
-                animGroup.repeatCount = .infinity
-                animGroup.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                // Glowing shadow effect
+                backingView.layer?.shadowColor = (isSelected ? NSColor.white : color).cgColor
+                backingView.layer?.shadowRadius = isSelected ? 8 : 3
+                backingView.layer?.shadowOpacity = isSelected ? 0.85 : 0.35
+                backingView.layer?.shadowOffset = .zero
                 
-                pulseLayer.add(animGroup, forKey: "heatmap_pulse")
-                backingView.layer?.addSublayer(pulseLayer)
+                // Pulsing Ring Animation - only show if selected or larger cluster (count >= 10)
+                if isSelected || count >= 10 {
+                    let pulseLayer = CALayer()
+                    pulseLayer.frame = backingView.bounds
+                    pulseLayer.cornerRadius = finalSize / 2.0
+                    pulseLayer.backgroundColor = isSelected ? NSColor.white.withAlphaComponent(0.25).cgColor : color.withAlphaComponent(0.12).cgColor
+                    pulseLayer.borderColor = isSelected ? NSColor.white.withAlphaComponent(0.6).cgColor : color.withAlphaComponent(0.35).cgColor
+                    pulseLayer.borderWidth = isSelected ? 1.0 : 0.6
+                    
+                    let scaleAnim = CABasicAnimation(keyPath: "transform.scale")
+                    scaleAnim.fromValue = 1.0
+                    scaleAnim.toValue = isSelected ? 1.5 : 1.7
+                    
+                    let opacityAnim = CABasicAnimation(keyPath: "opacity")
+                    opacityAnim.fromValue = isSelected ? 0.85 : 0.45
+                    opacityAnim.toValue = 0.0
+                    
+                    let animGroup = CAAnimationGroup()
+                    animGroup.animations = [scaleAnim, opacityAnim]
+                    animGroup.duration = isSelected ? 2.0 : 4.0
+                    animGroup.repeatCount = .infinity
+                    animGroup.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                    
+                    pulseLayer.add(animGroup, forKey: "heatmap_pulse")
+                    backingView.layer?.addSublayer(pulseLayer)
+                }
+                
+                // Solid center core dot
+                let coreDotSize = isSelected ? max(5, min(9, 2.5 + log2(Double(count)) * 1.0)) : max(3, min(6, 1.2 + log2(Double(count)) * 0.8))
+                let coreDot = PassThroughView(frame: CGRect(
+                    x: (finalSize - coreDotSize) / 2.0,
+                    y: (finalSize - coreDotSize) / 2.0,
+                    width: coreDotSize,
+                    height: coreDotSize
+                ))
+                coreDot.wantsLayer = true
+                coreDot.layer?.backgroundColor = NSColor.white.cgColor
+                coreDot.layer?.cornerRadius = coreDotSize / 2.0
+                coreDot.layer?.shadowColor = NSColor.white.cgColor
+                coreDot.layer?.shadowRadius = isSelected ? 3 : 1.5
+                coreDot.layer?.shadowOpacity = 0.85
+                coreDot.layer?.shadowOffset = .zero
+                
+                backingView.addSubview(coreDot)
+                annotationView?.addSubview(backingView)
             }
-            
-            // Solid center core dot
-            let coreDotSize = isSelected ? max(5, min(9, 2.5 + log2(Double(count)) * 1.0)) : max(3, min(6, 1.2 + log2(Double(count)) * 0.8))
-            let coreDot = PassThroughView(frame: CGRect(
-                x: (finalSize - coreDotSize) / 2.0,
-                y: (finalSize - coreDotSize) / 2.0,
-                width: coreDotSize,
-                height: coreDotSize
-            ))
-            coreDot.wantsLayer = true
-            coreDot.layer?.backgroundColor = NSColor.white.cgColor
-            coreDot.layer?.cornerRadius = coreDotSize / 2.0
-            coreDot.layer?.shadowColor = NSColor.white.cgColor
-            coreDot.layer?.shadowRadius = isSelected ? 3 : 1.5
-            coreDot.layer?.shadowOpacity = 0.85
-            coreDot.layer?.shadowOffset = .zero
-            
-            backingView.addSubview(coreDot)
-            annotationView?.addSubview(backingView)
             
             return annotationView
+        }
+        
+        func mapView(_ mapView: MKMapView, rendererFor overlay: MKOverlay) -> MKOverlayRenderer {
+            if let heatmapCircle = overlay as? HeatmapCircle {
+                let count = heatmapCircle.clusterCount
+                let maxCount = self.lastMaxCount
+                return HeatmapOverlayRenderer(circle: heatmapCircle, count: count, maxCount: maxCount)
+            }
+            return MKOverlayRenderer(overlay: overlay)
         }
         
         func mapView(_ mapView: MKMapView, didSelect view: MKAnnotationView) {
@@ -293,6 +513,22 @@ struct PhotosHeatmapView: View {
     @State private var isSidebarVisible: Bool = true
     @State private var isStyleMenuExpanded: Bool = false
     
+    enum HotspotGrouping: String, CaseIterable, Identifiable {
+        case city = "City"
+        case country = "Country"
+        
+        var id: String { rawValue }
+    }
+    @State private var hotspotGrouping: HotspotGrouping = .city
+    
+    enum VisualizationMode: String, CaseIterable, Identifiable {
+        case points = "Points"
+        case heatmap = "Heatmap"
+        
+        var id: String { rawValue }
+    }
+    @State private var visualizationMode: VisualizationMode = .heatmap
+    
     enum MapStyleSelection: String, CaseIterable, Identifiable {
         case standard = "Standard"
         case satellite = "Satellite"
@@ -314,47 +550,58 @@ struct PhotosHeatmapView: View {
             // MARK: - Left Hotspots Sidebar
             if isSidebarVisible {
                 GlassCard {
-                VStack(alignment: .leading, spacing: 18) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Interactive Hotspots")
-                            .font(.headline)
-                            .foregroundColor(.white)
-                        Text("Search and fly to density hubs in your library")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                    
-                    // Search Bar
-                    HStack(spacing: 8) {
-                        Image(systemName: "magnifyingglass")
-                            .foregroundColor(.secondary)
-                            .font(.system(size: 12))
-                        
-                        TextField("Search locations...", text: $searchQuery)
-                            .textFieldStyle(.plain)
-                            .font(.system(size: 12))
-                            .foregroundColor(.white)
-                        
-                        if !searchQuery.isEmpty {
-                            Button(action: { searchQuery = "" }) {
-                                Image(systemName: "xmark.circle.fill")
-                                    .foregroundColor(.secondary)
-                            }
-                            .buttonStyle(.plain)
+                VStack(alignment: .leading, spacing: 14) {
+                    // Header, Grouping, & Search Panel
+                    VStack(alignment: .leading, spacing: 10) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Interactive Hotspots")
+                                .font(.headline)
+                                .foregroundColor(.white)
+                            Text("Search and fly to density hubs in your library")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
                         }
+                        
+                        Picker("Grouping", selection: $hotspotGrouping) {
+                            ForEach(HotspotGrouping.allCases) { option in
+                                Text(option.rawValue).tag(option)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .labelsHidden()
+                        
+                        // Search Bar
+                        HStack(spacing: 8) {
+                            Image(systemName: "magnifyingglass")
+                                .foregroundColor(.secondary)
+                                .font(.system(size: 12))
+                            
+                            TextField("Search locations...", text: $searchQuery)
+                                .textFieldStyle(.plain)
+                                .font(.system(size: 12))
+                                .foregroundColor(.white)
+                            
+                            if !searchQuery.isEmpty {
+                                Button(action: { searchQuery = "" }) {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .foregroundColor(.secondary)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 7)
+                        .background(Color.white.opacity(0.05))
+                        .cornerRadius(8)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(Color.white.opacity(0.08), lineWidth: 1)
+                        )
                     }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 7)
-                    .background(Color.white.opacity(0.05))
-                    .cornerRadius(8)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(Color.white.opacity(0.08), lineWidth: 1)
-                    )
                     
                     Divider().background(Color.white.opacity(0.06))
                     
-                    // Hotspots List
+                    // Hotspots List (utilizes full vertical space)
                     if filteredClusters.isEmpty {
                         VStack(spacing: 12) {
                             Spacer()
@@ -370,7 +617,7 @@ struct PhotosHeatmapView: View {
                         .frame(maxWidth: .infinity)
                     } else {
                         ScrollView(.vertical, showsIndicators: false) {
-                            LazyVStack(spacing: 10) {
+                            LazyVStack(spacing: 8) {
                                 ForEach(Array(filteredClusters.enumerated()), id: \.element.id) { index, cluster in
                                     Button(action: {
                                         flyToCluster(cluster)
@@ -429,34 +676,35 @@ struct PhotosHeatmapView: View {
                         }
                     }
                     
-                    Spacer()
-                    
                     // Summary KPIs in sidebar
-                    Divider().background(Color.white.opacity(0.06))
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Total Geotagged")
-                                .font(.system(size: 8, weight: .bold))
-                                .foregroundColor(.secondary)
-                                .textCase(.uppercase)
-                            Text("\(totalMappedPhotosCount) photos")
-                                .font(.system(size: 13, weight: .bold, design: .rounded))
-                                .foregroundColor(.white)
-                        }
-                        Spacer()
-                        VStack(alignment: .trailing, spacing: 2) {
-                            Text("Map Centers")
-                                .font(.system(size: 8, weight: .bold))
-                                .foregroundColor(.secondary)
-                                .textCase(.uppercase)
-                            Text("\(clusters.count) hubs")
-                                .font(.system(size: 13, weight: .bold, design: .rounded))
-                                .foregroundColor(.white)
+                    VStack(spacing: 10) {
+                        Divider().background(Color.white.opacity(0.06))
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Total Geotagged")
+                                    .font(.system(size: 8, weight: .bold))
+                                    .foregroundColor(.secondary)
+                                    .textCase(.uppercase)
+                                Text("\(totalMappedPhotosCount) photos")
+                                    .font(.system(size: 13, weight: .bold, design: .rounded))
+                                    .foregroundColor(.white)
+                            }
+                            Spacer()
+                            VStack(alignment: .trailing, spacing: 2) {
+                                Text("Map Centers")
+                                    .font(.system(size: 8, weight: .bold))
+                                    .foregroundColor(.secondary)
+                                    .textCase(.uppercase)
+                                Text("\(clusters.count) hubs")
+                                    .font(.system(size: 13, weight: .bold, design: .rounded))
+                                    .foregroundColor(.white)
+                            }
                         }
                     }
-                    .padding(.top, 4)
                 }
-                .padding(20)
+                .padding(.horizontal, 16)
+                .padding(.top, 16)
+                .padding(.bottom, 14)
                 }
                 .frame(width: 300)
                 .glassCardHoverEffect()
@@ -474,7 +722,8 @@ struct PhotosHeatmapView: View {
                     selectedCluster: $selectedCluster,
                     mapType: $mapType,
                     centerTrigger: $centerTrigger,
-                    currentRegion: $currentRegion
+                    currentRegion: $currentRegion,
+                    visualizationMode: visualizationMode
                 )
                 .cornerRadius(16)
                 .overlay(
@@ -482,9 +731,19 @@ struct PhotosHeatmapView: View {
                         .stroke(Color.white.opacity(0.08), lineWidth: 1)
                 )
                 
+                if isStyleMenuExpanded {
+                    Color.black.opacity(0.01)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .onTapGesture {
+                            withAnimation(.spring(response: 0.28, dampingFraction: 0.8)) {
+                                isStyleMenuExpanded = false
+                            }
+                        }
+                }
+                
                 // Top HUD: Sidebar toggle on the left, Zoom controls on the right (perfectly aligned)
                 HStack(alignment: .center) {
-                    // Sidebar Toggle Button
+                    // Places Toggle Button
                     Button(action: {
                         withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
                             isSidebarVisible.toggle()
@@ -493,7 +752,7 @@ struct PhotosHeatmapView: View {
                         HStack(spacing: 6) {
                             Image(systemName: isSidebarVisible ? "sidebar.left" : "sidebar.right")
                                 .font(.system(size: 11, weight: .bold))
-                            Text("Sidebar")
+                            Text("Places")
                                 .font(.system(size: 10, weight: .bold, design: .rounded))
                         }
                         .foregroundColor(.white)
@@ -552,32 +811,108 @@ struct PhotosHeatmapView: View {
                 // Floating Collapsible Style Picker HUD in Bottom-Right
                 VStack(alignment: .trailing, spacing: 8) {
                     if isStyleMenuExpanded {
-                        VStack(spacing: 6) {
-                            ForEach(MapStyleSelection.allCases) { style in
-                                Button(action: {
-                                    withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
-                                        activeStyleSelection = style
-                                        mapType = style.mkType
-                                        isStyleMenuExpanded = false
+                        GlassCard(cornerRadius: 12, shadowRadius: 8) {
+                            VStack(alignment: .leading, spacing: 12) {
+                                // Map Layer Section
+                                VStack(alignment: .leading, spacing: 6) {
+                                    Text("Map Style")
+                                        .font(.system(size: 8, weight: .bold))
+                                        .foregroundColor(.secondary)
+                                        .textCase(.uppercase)
+                                    
+                                    ForEach(MapStyleSelection.allCases) { style in
+                                        Button(action: {
+                                            withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
+                                                activeStyleSelection = style
+                                                mapType = style.mkType
+                                            }
+                                        }) {
+                                            HStack(spacing: 8) {
+                                                Image(systemName: styleIcon(for: style))
+                                                    .font(.system(size: 9))
+                                                    .foregroundColor(activeStyleSelection == style ? .emerald : .secondary)
+                                                    .frame(width: 14)
+                                                
+                                                Text(style.rawValue)
+                                                    .font(.system(size: 10, weight: .semibold, design: .rounded))
+                                                    .foregroundColor(activeStyleSelection == style ? .emerald : .white.opacity(0.95))
+                                                    .lineLimit(1)
+                                                
+                                                Spacer()
+                                                
+                                                if activeStyleSelection == style {
+                                                    Image(systemName: "checkmark")
+                                                        .font(.system(size: 9, weight: .bold))
+                                                        .foregroundColor(.emerald)
+                                                }
+                                            }
+                                            .padding(.horizontal, 10)
+                                            .padding(.vertical, 6)
+                                            .frame(maxWidth: .infinity)
+                                            .background(activeStyleSelection == style ? Color.emerald.opacity(0.10) : Color.white.opacity(0.02))
+                                            .cornerRadius(6)
+                                            .overlay(
+                                                RoundedRectangle(cornerRadius: 6)
+                                                    .stroke(activeStyleSelection == style ? Color.emerald.opacity(0.3) : Color.clear, lineWidth: 1)
+                                            )
+                                        }
+                                        .buttonStyle(.plain)
+                                        .glassCardHoverEffect(cornerRadius: 6)
                                     }
-                                }) {
-                                    Text(style.rawValue)
-                                        .font(.system(size: 10, weight: .semibold, design: .rounded))
-                                        .foregroundColor(activeStyleSelection == style ? .emerald : .white.opacity(0.85))
-                                        .frame(width: 80, height: 24)
-                                        .background(activeStyleSelection == style ? Color.emerald.opacity(0.12) : Color.clear)
-                                        .cornerRadius(4)
                                 }
-                                .buttonStyle(.plain)
+                                
+                                Divider().background(Color.white.opacity(0.08))
+                                
+                                // Visual Style Section
+                                VStack(alignment: .leading, spacing: 6) {
+                                    Text("Visual Mode")
+                                        .font(.system(size: 8, weight: .bold))
+                                        .foregroundColor(.secondary)
+                                        .textCase(.uppercase)
+                                    
+                                    ForEach(VisualizationMode.allCases) { mode in
+                                        Button(action: {
+                                            withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
+                                                visualizationMode = mode
+                                            }
+                                        }) {
+                                            HStack(spacing: 8) {
+                                                Image(systemName: modeIcon(for: mode))
+                                                    .font(.system(size: 9))
+                                                    .foregroundColor(visualizationMode == mode ? .emerald : .secondary)
+                                                    .frame(width: 14)
+                                                
+                                                Text(mode.rawValue)
+                                                    .font(.system(size: 10, weight: .semibold, design: .rounded))
+                                                    .foregroundColor(visualizationMode == mode ? .emerald : .white.opacity(0.95))
+                                                    .lineLimit(1)
+                                                
+                                                Spacer()
+                                                
+                                                if visualizationMode == mode {
+                                                    Image(systemName: "checkmark")
+                                                        .font(.system(size: 9, weight: .bold))
+                                                        .foregroundColor(.emerald)
+                                                }
+                                            }
+                                            .padding(.horizontal, 10)
+                                            .padding(.vertical, 6)
+                                            .frame(maxWidth: .infinity)
+                                            .background(visualizationMode == mode ? Color.emerald.opacity(0.10) : Color.white.opacity(0.02))
+                                            .cornerRadius(6)
+                                            .overlay(
+                                                RoundedRectangle(cornerRadius: 6)
+                                                    .stroke(visualizationMode == mode ? Color.emerald.opacity(0.3) : Color.clear, lineWidth: 1)
+                                            )
+                                        }
+                                        .buttonStyle(.plain)
+                                        .glassCardHoverEffect(cornerRadius: 6)
+                                    }
+                                }
                             }
+                            .padding(10)
+                            .frame(width: 160)
                         }
-                        .padding(6)
-                        .background(Color.black.opacity(0.65))
-                        .cornerRadius(8)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8)
-                                .stroke(Color.white.opacity(0.08), lineWidth: 1)
-                        )
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                     }
                     
@@ -782,7 +1117,7 @@ struct PhotosHeatmapView: View {
         }.sorted(by: { $0.count > $1.count })
     }
     
-    // Clusters computed on the current filtered photos array (constant city-level for sidebar)
+    // Clusters computed on the current filtered photos array (constant city/country-level for sidebar)
     private var clusters: [MappedCluster] {
         var dict: [String: [Photo]] = [:]
         
@@ -790,10 +1125,14 @@ struct PhotosHeatmapView: View {
             guard let lat = photo.latitude, let lon = photo.longitude else { continue }
             
             let key: String
-            if let city = photo.cityName, let country = photo.countryName {
-                key = "\(city), \(country)"
+            if hotspotGrouping == .city {
+                if let city = photo.cityName, let country = photo.countryName {
+                    key = "\(city), \(country)"
+                } else {
+                    key = String(format: "%.1f,%.1f", lat, lon)
+                }
             } else {
-                key = String(format: "%.1f,%.1f", lat, lon)
+                key = photo.countryName ?? "Unknown Country"
             }
             
             dict[key, default: []].append(photo)
@@ -808,8 +1147,17 @@ struct PhotosHeatmapView: View {
             let avgLat = clusterPhotos.map { $0.latitude ?? 0.0 }.reduce(0.0, +) / Double(clusterPhotos.count)
             let avgLon = clusterPhotos.map { $0.longitude ?? 0.0 }.reduce(0.0, +) / Double(clusterPhotos.count)
             
-            let cityName = first.cityName ?? "Unknown Region"
-            let countryName = first.countryName ?? "Unknown Country"
+            let cityName: String
+            let countryName: String
+            
+            if hotspotGrouping == .city {
+                cityName = first.cityName ?? "Unknown Region"
+                countryName = first.countryName ?? "Unknown Country"
+            } else {
+                cityName = key
+                let cityCount = Set(clusterPhotos.compactMap(\.cityName)).count
+                countryName = cityCount == 1 ? "1 city visited" : "\(cityCount) cities visited"
+            }
             
             return MappedCluster(
                 id: key,
@@ -841,9 +1189,10 @@ struct PhotosHeatmapView: View {
     
     private func flyToCluster(_ cluster: MappedCluster) {
         selectedCluster = cluster
+        let delta = hotspotGrouping == .city ? 0.6 : 12.0
         let region = MKCoordinateRegion(
             center: cluster.coordinate,
-            span: MKCoordinateSpan(latitudeDelta: 10.0, longitudeDelta: 10.0)
+            span: MKCoordinateSpan(latitudeDelta: delta, longitudeDelta: delta)
         )
         centerTrigger = region
     }
@@ -911,6 +1260,21 @@ struct PhotosHeatmapView: View {
         case 1: return .cyan
         case 2: return .orange
         default: return .secondary
+        }
+    }
+    
+    private func styleIcon(for style: MapStyleSelection) -> String {
+        switch style {
+        case .standard: return "map.fill"
+        case .satellite: return "globe.americas.fill"
+        case .hybrid: return "square.3.stack.3d.top.filled"
+        }
+    }
+    
+    private func modeIcon(for mode: VisualizationMode) -> String {
+        switch mode {
+        case .points: return "circle.circle.fill"
+        case .heatmap: return "square.3.stack.3d.middle.filled"
         }
     }
 }
