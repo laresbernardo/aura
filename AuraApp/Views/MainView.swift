@@ -959,13 +959,23 @@ struct PhotosSyncLoadingView: View {
                         .stroke(Color.white.opacity(0.04), lineWidth: 4)
                         .frame(width: 80, height: 80)
                     
-                    // Pulsating center aperture icon
-                    Image(systemName: "camera.aperture")
-                        .font(.system(size: 30, weight: .light))
-                        .foregroundColor(.emerald)
-                        .scaleEffect(pulseScale)
-                        .opacity(pulseOpacity)
-                        .shadow(color: Color.emerald.opacity(0.2), radius: 4)
+                    // Pulsating center brand logo icon
+                    ZStack {
+                        Circle()
+                            .fill(LinearGradient(
+                                colors: [.emerald, .cyan],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            ))
+                            .frame(width: 44, height: 44)
+                            .shadow(color: Color.emerald.opacity(0.4), radius: 5)
+                        
+                        Image(systemName: "camera.fill")
+                            .font(.system(size: 18, weight: .bold))
+                            .foregroundColor(.white)
+                    }
+                    .scaleEffect(pulseScale)
+                    .opacity(pulseOpacity)
                 }
                 .frame(width: 100, height: 100)
                 
