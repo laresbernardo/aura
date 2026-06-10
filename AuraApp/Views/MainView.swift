@@ -18,8 +18,9 @@ enum MusicTab: String, CaseIterable {
 
 enum PhotosTab: String, CaseIterable {
     case photosOverview = "Overview"
-    case photosPlaces = "Places & Journeys"
     case photosBehavior = "Capture Behavior"
+    case photosPlaces = "Places & Journeys"
+    case photosHeatmap = "Interactive Map"
     case photosAura = "Photo Aura"
 }
 
@@ -666,6 +667,8 @@ struct MainView: View {
                                         PhotosBehaviorView(manager: photosManager)
                                     case .photosPlaces:
                                         PhotosPlacesView(manager: photosManager)
+                                    case .photosHeatmap:
+                                        PhotosHeatmapView(manager: photosManager)
                                     case .photosAura:
                                         PhotosAuraView(manager: photosManager)
                                     }
@@ -699,7 +702,8 @@ struct MainView: View {
         switch tab {
         case .photosOverview: return "photo.on.rectangle.angled"
         case .photosBehavior: return "clock.arrow.2.circlepath"
-        case .photosPlaces: return "map.fill"
+        case .photosPlaces: return "mappin.and.ellipse"
+        case .photosHeatmap: return "map.fill"
         case .photosAura: return "sparkles"
         }
     }
