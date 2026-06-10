@@ -54,6 +54,7 @@ struct HeatmapMapView: NSViewRepresentable {
     @Binding var selectedCluster: MappedCluster?
     @Binding var mapType: MKMapType
     @Binding var centerTrigger: MKCoordinateRegion?
+    @Binding var currentSpan: MKCoordinateSpan
     
     func makeNSView(context: Context) -> MKMapView {
         let mapView = MKMapView()
@@ -242,6 +243,12 @@ struct HeatmapMapView: NSViewRepresentable {
                 }
             }
         }
+        
+        func mapView(_ mapView: MKMapView, regionDidChangeAnimated animated: Bool) {
+            DispatchQueue.main.async {
+                self.parent.currentSpan = mapView.region.span
+            }
+        }
     }
 }
 
@@ -269,6 +276,8 @@ struct PhotosHeatmapView: View {
     @State private var centerTrigger: MKCoordinateRegion? = nil
     @State private var searchQuery: String = ""
     @State private var activeStyleSelection: MapStyleSelection = .standard
+    @State private var currentSpan = MKCoordinateSpan(latitudeDelta: 120.0, longitudeDelta: 120.0)
+    @State private var isSidebarVisible: Bool = true
     
     enum MapStyleSelection: String, CaseIterable, Identifiable {
         case standard = "Standard"
@@ -287,9 +296,10 @@ struct PhotosHeatmapView: View {
     }
     
     var body: some View {
-        HStack(spacing: 24) {
+        HStack(spacing: isSidebarVisible ? 24 : 0) {
             // MARK: - Left Hotspots Sidebar
-            GlassCard {
+            if isSidebarVisible {
+                GlassCard {
                 VStack(alignment: .leading, spacing: 18) {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Interactive Hotspots")
@@ -433,24 +443,55 @@ struct PhotosHeatmapView: View {
                     .padding(.top, 4)
                 }
                 .padding(20)
+                }
+                .frame(width: 300)
+                .glassCardHoverEffect()
+                .transition(.asymmetric(
+                    insertion: .move(edge: .leading).combined(with: .opacity),
+                    removal: .move(edge: .leading).combined(with: .opacity)
+                ))
             }
-            .frame(width: 300)
-            .glassCardHoverEffect()
             
             // MARK: - Right Map Display Area
             ZStack(alignment: .bottomLeading) {
                 // The actual interactive map wrapper
                 HeatmapMapView(
-                    clusters: clusters,
+                    clusters: mapClusters,
                     selectedCluster: $selectedCluster,
                     mapType: $mapType,
-                    centerTrigger: $centerTrigger
+                    centerTrigger: $centerTrigger,
+                    currentSpan: $currentSpan
                 )
                 .cornerRadius(16)
                 .overlay(
                     RoundedRectangle(cornerRadius: 16)
                         .stroke(Color.white.opacity(0.08), lineWidth: 1)
                 )
+                
+                // Floating Sidebar Toggle Button in Top-Left of Map
+                Button(action: {
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                        isSidebarVisible.toggle()
+                    }
+                }) {
+                    HStack(spacing: 6) {
+                        Image(systemName: isSidebarVisible ? "sidebar.left" : "sidebar.right")
+                            .font(.system(size: 13, weight: .bold))
+                        if !isSidebarVisible {
+                            Text("Show Sidebar")
+                                .font(.system(size: 10, weight: .bold, design: .rounded))
+                        }
+                    }
+                    .foregroundColor(.white)
+                    .padding(.horizontal, isSidebarVisible ? 10 : 12)
+                    .padding(.vertical, 8)
+                    .background(Color.black.opacity(0.4))
+                    .cornerRadius(8)
+                }
+                .buttonStyle(.plain)
+                .glassCardHoverEffect(cornerRadius: 8)
+                .padding(16)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 
                 // Floating Style and Zoom HUD in Top-Right
                 VStack(spacing: 12) {
@@ -636,7 +677,59 @@ struct PhotosHeatmapView: View {
     
     // MARK: - Calculations
     
-    // Clusters computed on the current filtered photos array
+    // Dynamic granularity clusters computed on the map visible span delta
+    private var mapClusters: [MappedCluster] {
+        let delta = currentSpan.latitudeDelta
+        var dict: [String: [Photo]] = [:]
+        
+        for photo in manager.photos {
+            guard let lat = photo.latitude, let lon = photo.longitude else { continue }
+            
+            let key: String
+            if delta > 15.0 {
+                // Country/Continent Zoom: Group by City/Country
+                if let city = photo.cityName, let country = photo.countryName {
+                    key = "\(city), \(country)"
+                } else {
+                    key = String(format: "%.1f,%.1f", lat, lon)
+                }
+            } else if delta > 1.5 {
+                // City/Region Zoom: Group by 2 decimal places (~1.1km)
+                key = String(format: "%.2f,%.2f", lat, lon)
+            } else if delta > 0.15 {
+                // Neighborhood Zoom: Group by 3 decimal places (~110m)
+                key = String(format: "%.3f,%.3f", lat, lon)
+            } else {
+                // Block/Street Zoom: Group by 4 decimal places (~11m)
+                key = String(format: "%.4f,%.4f", lat, lon)
+            }
+            
+            dict[key, default: []].append(photo)
+        }
+        
+        return dict.compactMap { key, clusterPhotos -> MappedCluster? in
+            guard let first = clusterPhotos.first,
+                  first.latitude != nil,
+                  first.longitude != nil else { return nil }
+            
+            // Average coordinate position
+            let avgLat = clusterPhotos.map { $0.latitude ?? 0.0 }.reduce(0.0, +) / Double(clusterPhotos.count)
+            let avgLon = clusterPhotos.map { $0.longitude ?? 0.0 }.reduce(0.0, +) / Double(clusterPhotos.count)
+            
+            let baseCityName = first.cityName ?? "Unknown Region"
+            let countryName = first.countryName ?? "Unknown Country"
+            
+            return MappedCluster(
+                id: key,
+                cityName: baseCityName,
+                countryName: countryName,
+                coordinate: CLLocationCoordinate2D(latitude: avgLat, longitude: avgLon),
+                photos: clusterPhotos
+            )
+        }.sorted(by: { $0.count > $1.count })
+    }
+    
+    // Clusters computed on the current filtered photos array (constant city-level for sidebar)
     private var clusters: [MappedCluster] {
         var dict: [String: [Photo]] = [:]
         
