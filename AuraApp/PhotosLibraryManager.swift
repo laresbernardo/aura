@@ -384,14 +384,69 @@ class PhotosLibraryManager: ObservableObject {
         
         self.syncStatus = "Analyzing Photo Library captures..."
         
+        // Build a thread-safe lookup map of the cached photos
+        let cacheMap = Dictionary(uniqueKeysWithValues: self.allPhotos.map { ($0.id, $0) })
+        
         let manager = self
-        let fetchedPhotos = await Task.detached(priority: .userInitiated) { [manager] () -> [Photo] in
+        let fetchedPhotos = await Task.detached(priority: .userInitiated) { [manager, cacheMap] () -> [Photo] in
             var list: [Photo] = []
             let total = fetchResult.count
             list.reserveCapacity(total)
             
             fetchResult.enumerateObjects { (asset, index, stop) in
                 let id = asset.localIdentifier
+                
+                // Fast path: check disk cache map
+                if let cached = cacheMap[id] {
+                    var updatedCached = cached
+                    let assetLat = asset.location?.coordinate.latitude
+                    let assetLon = asset.location?.coordinate.longitude
+                    
+                    if cached.isFavorite != asset.isFavorite || cached.latitude != assetLat || cached.longitude != assetLon {
+                        let locationChanged = cached.latitude != assetLat || cached.longitude != assetLon
+                        
+                        var alt: Double? = cached.altitude
+                        if locationChanged {
+                            alt = nil
+                            if let loc = asset.location {
+                                if loc.verticalAccuracy >= 0 {
+                                    let rawAlt = loc.altitude
+                                    if abs(rawAlt) > 0.01 && rawAlt >= -100.0 && rawAlt <= 8500.0 {
+                                        alt = rawAlt
+                                    }
+                                }
+                            }
+                        }
+                        
+                        updatedCached = Photo(
+                            id: cached.id,
+                            filename: cached.filename,
+                            dateAdded: cached.dateAdded,
+                            latitude: assetLat,
+                            longitude: assetLon,
+                            altitude: alt,
+                            width: cached.width,
+                            height: cached.height,
+                            isFavorite: asset.isFavorite,
+                            cityName: locationChanged ? nil : cached.cityName,
+                            countryName: locationChanged ? nil : cached.countryName,
+                            isLivePhoto: cached.isLivePhoto,
+                            cameraModel: cached.cameraModel
+                        )
+                    }
+                    
+                    list.append(updatedCached)
+                    
+                    // Real-time progress updates to MainActor every 100 files
+                    if index % 100 == 0 || index == total - 1 {
+                        let fraction = Double(index + 1) / Double(max(1, total))
+                        Task { @MainActor in
+                            manager.syncProgressFraction = fraction
+                            manager.syncStatus = "Analyzing captures (\(index + 1) of \(total))..."
+                        }
+                    }
+                    return
+                }
                 
                 // Super safe exception-guarded filename lookup using responds(to:) with robust public PHAssetResource fallback
                 var filename = "IMG_\(index).jpg"

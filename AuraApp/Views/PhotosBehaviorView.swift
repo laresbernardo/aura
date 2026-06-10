@@ -154,6 +154,7 @@ struct PhotosBehaviorView: View {
                                 }
                             }
                             .chartXScale(domain: xScaleDomain)
+                            .padding(.horizontal, 16)
                             .frame(height: 200)
                             .padding(.vertical, 8)
                         }
@@ -341,13 +342,13 @@ struct PhotosBehaviorView: View {
     private var xScaleDomain: ClosedRange<Int> {
         switch selectedGranularity {
         case .hour:
-            return 0...23
+            return -1...24
         case .weekday:
-            return 1...7
+            return 0...8
         case .dayOfMonth:
-            return 1...31
+            return 0...32
         case .month:
-            return 1...12
+            return 0...13
         }
     }
     
