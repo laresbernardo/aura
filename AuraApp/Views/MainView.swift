@@ -540,8 +540,7 @@ struct MainView: View {
                     } else {
                         // PHOTOS MODE DETAIL VIEWPORT
                         if photosManager.sourceMode == .direct && photosManager.isLoading {
-                            ProgressView(photosManager.syncStatus.isEmpty ? "Reading Photos library…" : photosManager.syncStatus)
-                                .foregroundColor(.secondary)
+                            PhotosSyncLoadingView(manager: photosManager)
                                 .transition(.opacity)
                         } else if photosManager.sourceMode == .direct, let errorMsg = photosManager.syncError {
                             PhotosErrorFallbackView(message: errorMsg, manager: photosManager)
@@ -922,6 +921,110 @@ struct XMLErrorFallbackView: View {
                 .frame(width: 14, alignment: .leading)
             Text(text)
                 .font(.caption).foregroundColor(.secondary).lineSpacing(3)
+        }
+    }
+}
+
+// MARK: - Photos Sync Loading View
+struct PhotosSyncLoadingView: View {
+    @ObservedObject var manager: PhotosLibraryManager
+    @State private var rotationAngle: Double = 0.0
+    @State private var pulseScale: CGFloat = 0.95
+    @State private var pulseOpacity: Double = 0.6
+    
+    var body: some View {
+        GlassCard(cornerRadius: 24, shadowRadius: 20) {
+            VStack(spacing: 28) {
+                // Animated Spinner/Aperture Ring
+                ZStack {
+                    // Rotating outer gradient ring
+                    Circle()
+                        .stroke(
+                            AngularGradient(
+                                colors: [.emerald, .teal, .cyan, .emerald],
+                                center: .center
+                            ),
+                            style: StrokeStyle(lineWidth: 4, lineCap: .round)
+                        )
+                        .frame(width: 80, height: 80)
+                        .rotationEffect(Angle(degrees: rotationAngle))
+                        .shadow(color: Color.emerald.opacity(0.3), radius: 6)
+                    
+                    // Outer glow static ring
+                    Circle()
+                        .stroke(Color.white.opacity(0.04), lineWidth: 4)
+                        .frame(width: 80, height: 80)
+                    
+                    // Pulsating center aperture icon
+                    Image(systemName: "camera.aperture")
+                        .font(.system(size: 30, weight: .light))
+                        .foregroundColor(.emerald)
+                        .scaleEffect(pulseScale)
+                        .opacity(pulseOpacity)
+                        .shadow(color: Color.emerald.opacity(0.2), radius: 4)
+                }
+                .frame(width: 100, height: 100)
+                
+                // Status text section
+                VStack(spacing: 8) {
+                    Text("Syncing Photo Library")
+                        .font(.system(.title3, design: .rounded))
+                        .fontWeight(.bold)
+                        .foregroundColor(.white)
+                    
+                    Text(manager.syncStatus.isEmpty ? "Preparing assets..." : manager.syncStatus)
+                        .font(.system(.callout, design: .rounded))
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                        .frame(height: 40)
+                        .padding(.horizontal, 16)
+                }
+                
+                // Linear Progress Bar
+                VStack(spacing: 6) {
+                    GeometryReader { geo in
+                        ZStack(alignment: .leading) {
+                            Capsule()
+                                .fill(Color.white.opacity(0.06))
+                                .frame(height: 6)
+                            
+                            Capsule()
+                                .fill(
+                                    LinearGradient(
+                                        colors: [.emerald, .teal, .cyan],
+                                        startPoint: .leading,
+                                        endPoint: .trailing
+                                    )
+                                )
+                                .frame(width: geo.size.width * CGFloat(manager.syncProgressFraction), height: 6)
+                                .shadow(color: Color.emerald.opacity(0.4), radius: 4)
+                                .animation(.spring(response: 0.35, dampingFraction: 0.82), value: manager.syncProgressFraction)
+                        }
+                    }
+                    .frame(height: 6)
+                    
+                    HStack {
+                        Spacer()
+                        Text(String(format: "%.0f%%", manager.syncProgressFraction * 100))
+                            .font(.system(.caption, design: .monospaced))
+                            .fontWeight(.bold)
+                            .foregroundColor(.emerald)
+                    }
+                }
+                .padding(.horizontal, 24)
+            }
+            .padding(.vertical, 32)
+            .padding(.horizontal, 24)
+            .frame(width: 380)
+        }
+        .onAppear {
+            withAnimation(.linear(duration: 2.5).repeatForever(autoreverses: false)) {
+                rotationAngle = 360.0
+            }
+            withAnimation(.easeInOut(duration: 1.25).repeatForever(autoreverses: true)) {
+                pulseScale = 1.1
+                pulseOpacity = 1.0
+            }
         }
     }
 }

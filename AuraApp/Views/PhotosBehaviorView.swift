@@ -66,9 +66,16 @@ struct PhotosBehaviorView: View {
                                         .font(.headline)
                                         .foregroundColor(.white)
                                 }
-                                Text(granularityDescription)
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
+                                if let hoveredKey = hoveredKey, let stats = hoveredStats {
+                                    Text("\(xAxisLabel(for: hoveredKey)): \(stats.photos.formatted()) photos • \(stats.videos.formatted()) videos (\(stats.total.formatted()) total)")
+                                        .font(.caption)
+                                        .fontWeight(.bold)
+                                        .foregroundColor(.emerald)
+                                } else {
+                                    Text(granularityDescription)
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
                             }
                             
                             Spacer()
@@ -92,30 +99,25 @@ struct PhotosBehaviorView: View {
                                 ForEach(activeHistogramData) { dataPoint in
                                     BarMark(
                                         x: .value(selectedGranularity.rawValue, dataPoint.intKey),
-                                        y: .value("Captures", dataPoint.count)
+                                        y: .value("Captures", dataPoint.count),
+                                        width: barWidth
                                     )
-                                    .foregroundStyle(
-                                        LinearGradient(
-                                            colors: [.emerald.opacity(0.85), .teal.opacity(0.35)],
-                                            startPoint: .top,
-                                            endPoint: .bottom
-                                        )
-                                    )
+                                    .foregroundStyle(by: .value("Media Type", dataPoint.type))
                                     .cornerRadius(4)
-                                    .annotation(position: .top) {
-                                        if hoveredKey == dataPoint.intKey && dataPoint.count > 0 {
-                                            Text(dataPoint.count.formatted())
-                                                .font(.system(size: 10, weight: .bold, design: .rounded))
-                                                .foregroundColor(.white)
-                                                .padding(.horizontal, 6)
-                                                .padding(.vertical, 3)
-                                                .background(Color.emerald.opacity(0.85))
-                                                .cornerRadius(4)
-                                                .offset(y: -4)
-                                        }
-                                    }
                                 }
                             }
+                            .chartForegroundStyleScale([
+                                "Photo": LinearGradient(
+                                    colors: [.emerald.opacity(0.85), .teal.opacity(0.65)],
+                                    startPoint: .top,
+                                    endPoint: .bottom
+                                ),
+                                "Video": LinearGradient(
+                                    colors: [.cyan.opacity(0.85), .blue.opacity(0.65)],
+                                    startPoint: .top,
+                                    endPoint: .bottom
+                                )
+                            ])
                             .chartOverlay { proxy in
                                 GeometryReader { geo in
                                     Rectangle()
@@ -162,7 +164,7 @@ struct PhotosBehaviorView: View {
                 
                 // MARK: - Row of Gear & Aspect Ratios
                 HStack(spacing: 24) {
-                    // Camera Gear Distribution Chart
+                    // Camera Gear Distribution List
                     GlassCard {
                         VStack(alignment: .leading, spacing: 18) {
                             VStack(alignment: .leading, spacing: 4) {
@@ -179,65 +181,20 @@ struct PhotosBehaviorView: View {
                                     .foregroundColor(.secondary)
                                     .frame(height: 180)
                             } else {
-                                Chart(manager.cameraDistribution) { stat in
-                                    BarMark(
-                                        x: .value("Captures", stat.count),
-                                        y: .value("Camera", stat.camera)
-                                    )
-                                    .foregroundStyle(
-                                        LinearGradient(
-                                            colors: [.cyan.opacity(0.85), .blue.opacity(0.35)],
-                                            startPoint: .leading,
-                                            endPoint: .trailing
-                                        )
-                                    )
-                                    .cornerRadius(4)
-                                    .annotation(position: .trailing) {
-                                        if hoveredCamera == stat.camera {
-                                            Text("\(stat.count.formatted()) photos")
-                                                .font(.system(.caption2, design: .monospaced))
-                                                .fontWeight(.bold)
-                                                .foregroundColor(.white)
-                                                .padding(.horizontal, 6)
-                                                .padding(.vertical, 3)
-                                                .background(Color.cyan.opacity(0.85))
-                                                .cornerRadius(4)
-                                        } else {
-                                            Text(stat.count.formatted())
-                                                .font(.system(.caption2, design: .monospaced))
-                                                .foregroundColor(.white.opacity(0.8))
+                                ScrollView(.vertical, showsIndicators: true) {
+                                    let maxCount = manager.cameraDistribution.max(by: { $0.count < $1.count })?.count ?? 1
+                                    VStack(spacing: 4) {
+                                        ForEach(manager.cameraDistribution) { stat in
+                                            CameraGearRow(
+                                                camera: stat.camera,
+                                                count: stat.count,
+                                                ratio: Double(stat.count) / Double(max(1, maxCount))
+                                            )
                                         }
                                     }
-                                }
-                                .chartOverlay { proxy in
-                                    GeometryReader { geo in
-                                        Rectangle()
-                                            .fill(Color.clear)
-                                            .contentShape(Rectangle())
-                                            .onContinuousHover { phase in
-                                                switch phase {
-                                                case .active(let location):
-                                                    if let camera: String = proxy.value(atY: location.y) {
-                                                        hoveredCamera = camera
-                                                    } else {
-                                                        hoveredCamera = nil
-                                                    }
-                                                case .ended:
-                                                    hoveredCamera = nil
-                                                }
-                                            }
-                                    }
-                                }
-                                .chartXAxis(.hidden)
-                                .chartYAxis {
-                                    AxisMarks { value in
-                                        AxisValueLabel()
-                                            .foregroundStyle(.white.opacity(0.85))
-                                            .font(.system(size: 10))
-                                    }
+                                    .padding(.trailing, 6)
                                 }
                                 .frame(height: 180)
-                                .padding(.vertical, 8)
                             }
                         }
                         .padding(24)
@@ -406,10 +363,12 @@ struct PhotosBehaviorView: View {
                 return "\(val) \(suffix)"
             }
         case .weekday:
+            let order = [2, 3, 4, 5, 6, 7, 1] // Monday through Sunday
             let formatter = DateFormatter()
             let symbols = formatter.shortWeekdaySymbols ?? ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
             guard key >= 1 && key <= 7 else { return "" }
-            return symbols[key - 1]
+            let day = order[key - 1]
+            return symbols[day - 1]
         case .dayOfMonth:
             return "\(key)"
         case .month:
@@ -420,11 +379,122 @@ struct PhotosBehaviorView: View {
         }
     }
     
+    private var barWidth: MarkDimension {
+        switch selectedGranularity {
+        case .hour:
+            return .fixed(10)
+        case .weekday:
+            return .fixed(36)
+        case .dayOfMonth:
+            return .fixed(6)
+        case .month:
+            return .fixed(24)
+        }
+    }
+    
+    private var hoveredStats: (photos: Int, videos: Int, total: Int)? {
+        guard let key = hoveredKey else { return nil }
+        let points = activeHistogramData.filter { $0.intKey == key }
+        let photos = points.first(where: { $0.type == "Photo" })?.count ?? 0
+        let videos = points.first(where: { $0.type == "Video" })?.count ?? 0
+        return (photos: photos, videos: videos, total: photos + videos)
+    }
+    
     private var primaryCameraName: String {
         return manager.cameraDistribution.first?.camera ?? "Unknown Device"
     }
     
     private var favoriteCropCategory: String {
         return manager.aspectRatios.first?.category ?? "Unknown Crop"
+    }
+}
+
+// MARK: - Camera Gear Row Component
+struct CameraGearRow: View {
+    let camera: String
+    let count: Int
+    let ratio: Double
+    @State private var isHovered = false
+    
+    var body: some View {
+        HStack(spacing: 12) {
+            // Icon matching device type
+            Image(systemName: deviceIcon(for: camera))
+                .font(.system(size: 13, weight: .medium))
+                .foregroundColor(.emerald)
+                .frame(width: 26, height: 26)
+                .background(
+                    Circle()
+                        .fill(Color.emerald.opacity(0.12))
+                )
+                .overlay(
+                    Circle()
+                        .stroke(Color.emerald.opacity(0.2), lineWidth: 1)
+                )
+            
+            VStack(alignment: .leading, spacing: 5) {
+                HStack {
+                    Text(camera)
+                        .font(.system(.subheadline, design: .rounded))
+                        .fontWeight(.semibold)
+                        .foregroundColor(.white.opacity(0.95))
+                        .lineLimit(1)
+                    
+                    Spacer()
+                    
+                    Text(count.formatted())
+                        .font(.system(.subheadline, design: .monospaced))
+                        .fontWeight(.bold)
+                        .foregroundColor(.emerald)
+                }
+                
+                // Track bar
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        Capsule()
+                            .fill(Color.white.opacity(0.06))
+                            .frame(height: 5)
+                        
+                        Capsule()
+                            .fill(
+                                LinearGradient(
+                                    colors: [.emerald, .teal],
+                                    startPoint: .leading,
+                                    endPoint: .trailing
+                                )
+                            )
+                            .frame(width: geo.size.width * CGFloat(ratio), height: 5)
+                            .shadow(color: Color.emerald.opacity(0.3), radius: 2)
+                    }
+                }
+                .frame(height: 5)
+            }
+        }
+        .padding(.vertical, 8)
+        .padding(.horizontal, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(isHovered ? Color.white.opacity(0.04) : Color.clear)
+        )
+        .onHover { hover in
+            withAnimation(.easeOut(duration: 0.15)) {
+                isHovered = hover
+            }
+        }
+    }
+    
+    private func deviceIcon(for name: String) -> String {
+        let lower = name.lowercased()
+        if lower.contains("iphone") {
+            return "iphone"
+        } else if lower.contains("gopro") || lower.contains("hero") {
+            return "video.fill"
+        } else if lower.contains("meta") || lower.contains("glasses") || lower.contains("ray-ban") {
+            return "glasses"
+        } else if lower.contains("d5") || lower.contains("nikon") || lower.contains("canon") || lower.contains("sony") || lower.contains("fujifilm") || lower.contains("panasonic") || lower.contains("leica") || lower.contains("hasselblad") {
+            return "camera.aperture"
+        } else {
+            return "camera.fill"
+        }
     }
 }

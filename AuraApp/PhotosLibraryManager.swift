@@ -130,6 +130,7 @@ struct HistogramDataPoint: Identifiable, Hashable {
     let intKey: Int
     let label: String
     let count: Int
+    let type: String // "Photo" or "Video"
 }
 
 // MARK: - Photos Library Manager
@@ -154,6 +155,7 @@ class PhotosLibraryManager: ObservableObject {
     @Published var isLoading: Bool = false
     @Published var syncError: String? = nil
     @Published var syncStatus: String = ""
+    @Published var syncProgressFraction: Double = 0.0
     @Published var isGeocoding: Bool = false
     @Published var isGeocodingPaused: Bool = false
     @Published var sourceMode: SourceMode = .demo
@@ -357,6 +359,7 @@ class PhotosLibraryManager: ObservableObject {
         self.isLoading = true
         self.syncError = nil
         self.syncStatus = "Requesting access to Photo Library..."
+        self.syncProgressFraction = 0.0
         
         let status = await PHPhotoLibrary.requestAuthorization(for: .readWrite)
         guard status == .authorized || status == .limited else {
@@ -425,8 +428,9 @@ class PhotosLibraryManager: ObservableObject {
                 let isLive = asset.mediaSubtypes.contains(.photoLive)
                 
                 var kvcCamera: String? = nil
-                if asset.responds(to: NSSelectorFromString("cameraModel")) {
-                    kvcCamera = asset.value(forKey: "cameraModel") as? String
+                if asset.responds(to: NSSelectorFromString("photosInfoPanelExtendedProperties")),
+                   let extendedProps = asset.value(forKey: "photosInfoPanelExtendedProperties") as? NSObject {
+                    kvcCamera = extendedProps.value(forKey: "cameraModel") as? String
                 }
                 let camera = manager.cleanCameraModel(kvcModel: kvcCamera, filename: filename, isLivePhoto: isLive, width: width, height: height)
                 
@@ -447,7 +451,9 @@ class PhotosLibraryManager: ObservableObject {
                 
                 // Real-time progress updates to MainActor every 100 files
                 if index % 100 == 0 || index == total - 1 {
+                    let fraction = Double(index + 1) / Double(max(1, total))
                     Task { @MainActor in
+                        manager.syncProgressFraction = fraction
                         manager.syncStatus = "Analyzing captures (\(index + 1) of \(total))..."
                     }
                 }
@@ -488,6 +494,7 @@ class PhotosLibraryManager: ObservableObject {
         }
         
         self.syncStatus = ""
+        self.syncProgressFraction = 1.0
         self.isLoading = false
     }
     
@@ -925,59 +932,105 @@ class PhotosLibraryManager: ObservableObject {
     // ─── Granular Histogram Data Calculations ───
     
     var hourlyHistogramData: [HistogramDataPoint] {
-        let counts = captureHourCounts
-        return (0..<24).map { hour in
+        var photoCounts = [Int: Int]()
+        var videoCounts = [Int: Int]()
+        var cal = Calendar.current
+        cal.timeZone = TimeZone.current
+        for item in photos {
+            let hour = cal.component(.hour, from: item.capturedDate)
+            if item.mediaType == "Video" {
+                videoCounts[hour, default: 0] += 1
+            } else {
+                photoCounts[hour, default: 0] += 1
+            }
+        }
+        
+        var points = [HistogramDataPoint]()
+        for hour in 0..<24 {
             let suffix = hour >= 12 ? "PM" : "AM"
             let val = hour == 0 ? 12 : (hour > 12 ? hour - 12 : hour)
             let label = "\(val) \(suffix)"
-            return HistogramDataPoint(intKey: hour, label: label, count: counts[hour, default: 0])
+            
+            points.append(HistogramDataPoint(intKey: hour, label: label, count: photoCounts[hour, default: 0], type: "Photo"))
+            points.append(HistogramDataPoint(intKey: hour, label: label, count: videoCounts[hour, default: 0], type: "Video"))
         }
+        return points
     }
     
     var weekdayHistogramData: [HistogramDataPoint] {
-        var counts: [Int: Int] = [:]
+        var photoCounts = [Int: Int]()
+        var videoCounts = [Int: Int]()
         var cal = Calendar.current
         cal.timeZone = TimeZone.current
         for item in photos {
             let weekday = cal.component(.weekday, from: item.capturedDate)
-            counts[weekday, default: 0] += 1
+            if item.mediaType == "Video" {
+                videoCounts[weekday, default: 0] += 1
+            } else {
+                photoCounts[weekday, default: 0] += 1
+            }
         }
+        
         let formatter = DateFormatter()
         let symbols = formatter.shortWeekdaySymbols ?? ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
-        // Calendar component .weekday returns 1 for Sunday, 7 for Saturday.
-        return (1...7).map { day in
+        
+        let order = [2, 3, 4, 5, 6, 7, 1] // Monday to Sunday
+        var points = [HistogramDataPoint]()
+        for (index, day) in order.enumerated() {
             let label = symbols[day - 1]
-            return HistogramDataPoint(intKey: day, label: label, count: counts[day, default: 0])
+            points.append(HistogramDataPoint(intKey: index + 1, label: label, count: photoCounts[day, default: 0], type: "Photo"))
+            points.append(HistogramDataPoint(intKey: index + 1, label: label, count: videoCounts[day, default: 0], type: "Video"))
         }
+        return points
     }
     
     var dayOfMonthHistogramData: [HistogramDataPoint] {
-        var counts: [Int: Int] = [:]
+        var photoCounts = [Int: Int]()
+        var videoCounts = [Int: Int]()
         var cal = Calendar.current
         cal.timeZone = TimeZone.current
         for item in photos {
             let day = cal.component(.day, from: item.capturedDate)
-            counts[day, default: 0] += 1
+            if item.mediaType == "Video" {
+                videoCounts[day, default: 0] += 1
+            } else {
+                photoCounts[day, default: 0] += 1
+            }
         }
-        return (1...31).map { day in
-            return HistogramDataPoint(intKey: day, label: "\(day)", count: counts[day, default: 0])
+        
+        var points = [HistogramDataPoint]()
+        for day in 1...31 {
+            let label = "\(day)"
+            points.append(HistogramDataPoint(intKey: day, label: label, count: photoCounts[day, default: 0], type: "Photo"))
+            points.append(HistogramDataPoint(intKey: day, label: label, count: videoCounts[day, default: 0], type: "Video"))
         }
+        return points
     }
     
     var monthHistogramData: [HistogramDataPoint] {
-        var counts: [Int: Int] = [:]
+        var photoCounts = [Int: Int]()
+        var videoCounts = [Int: Int]()
         var cal = Calendar.current
         cal.timeZone = TimeZone.current
         for item in photos {
             let month = cal.component(.month, from: item.capturedDate)
-            counts[month, default: 0] += 1
+            if item.mediaType == "Video" {
+                videoCounts[month, default: 0] += 1
+            } else {
+                photoCounts[month, default: 0] += 1
+            }
         }
+        
         let formatter = DateFormatter()
         let symbols = formatter.shortMonthSymbols ?? ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-        return (1...12).map { month in
+        
+        var points = [HistogramDataPoint]()
+        for month in 1...12 {
             let label = symbols[month - 1]
-            return HistogramDataPoint(intKey: month, label: label, count: counts[month, default: 0])
+            points.append(HistogramDataPoint(intKey: month, label: label, count: photoCounts[month, default: 0], type: "Photo"))
+            points.append(HistogramDataPoint(intKey: month, label: label, count: videoCounts[month, default: 0], type: "Video"))
         }
+        return points
     }
 
     // Peak Shooting Weekday Calculations
