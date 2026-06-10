@@ -2,6 +2,13 @@ import SwiftUI
 import MapKit
 import AppKit
 
+// MARK: - Pass Through View for Mouse Events
+class PassThroughView: NSView {
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        return nil
+    }
+}
+
 // MARK: - Mapped Cluster Model
 struct MappedCluster: Identifiable, Equatable {
     let id: String // City, Country or formatted Coordinate
@@ -54,7 +61,7 @@ struct HeatmapMapView: NSViewRepresentable {
     @Binding var selectedCluster: MappedCluster?
     @Binding var mapType: MKMapType
     @Binding var centerTrigger: MKCoordinateRegion?
-    @Binding var currentSpan: MKCoordinateSpan
+    @Binding var currentRegion: MKCoordinateRegion
     
     func makeNSView(context: Context) -> MKMapView {
         let mapView = MKMapView()
@@ -65,10 +72,12 @@ struct HeatmapMapView: NSViewRepresentable {
         mapView.isPitchEnabled = true
         mapView.isRotateEnabled = true
         mapView.mapType = mapType
+        mapView.setRegion(currentRegion, animated: false)
         return mapView
     }
     
     func updateNSView(_ nsView: MKMapView, context: Context) {
+        context.coordinator.parent = self
         nsView.mapType = mapType
         
         // 1. Sync Annotations
@@ -138,17 +147,20 @@ struct HeatmapMapView: NSViewRepresentable {
             }
             
             let count = clusterAnnotation.cluster.count
-            // Calculate scale sizing based on photo count (log scale)
-            let baseSize = CGFloat(max(20, min(54, 16 + log2(Double(count)) * 6.5)))
+            let isSelected = (clusterAnnotation.cluster.id == parent.selectedCluster?.id)
             
-            annotationView?.frame = CGRect(x: 0, y: 0, width: baseSize, height: baseSize)
+            // Calculate scale sizing based on photo count (log scale) - reduced size to prevent map clutter
+            let baseSize = CGFloat(max(10, min(30, 6 + log2(Double(count)) * 3.0)))
+            let finalSize = isSelected ? baseSize * 1.35 + 4 : baseSize
+            
+            annotationView?.frame = CGRect(x: 0, y: 0, width: finalSize, height: finalSize)
             
             // Clean up any existing subviews or sublayers
             annotationView?.subviews.forEach { $0.removeFromSuperview() }
             annotationView?.layer?.sublayers?.forEach { $0.removeFromSuperlayer() }
             
             // Setup core background view
-            let backingView = NSView(frame: annotationView?.bounds ?? .zero)
+            let backingView = PassThroughView(frame: annotationView?.bounds ?? .zero)
             backingView.wantsLayer = true
             
             // Determine density color theme
@@ -161,47 +173,50 @@ struct HeatmapMapView: NSViewRepresentable {
                 color = NSColor.systemRed // High density
             }
             
-            backingView.layer?.backgroundColor = color.withAlphaComponent(0.55).cgColor
-            backingView.layer?.cornerRadius = baseSize / 2.0
-            backingView.layer?.borderColor = color.withAlphaComponent(0.9).cgColor
-            backingView.layer?.borderWidth = 1.5
+            // Softer opacity, border, and shadows to render as a soft heatmap layer
+            backingView.layer?.backgroundColor = isSelected ? color.withAlphaComponent(0.7).cgColor : color.withAlphaComponent(0.22).cgColor
+            backingView.layer?.cornerRadius = finalSize / 2.0
+            backingView.layer?.borderColor = isSelected ? NSColor.white.cgColor : color.withAlphaComponent(0.45).cgColor
+            backingView.layer?.borderWidth = isSelected ? 1.5 : 0.8
             
             // Glowing shadow effect
-            backingView.layer?.shadowColor = color.cgColor
-            backingView.layer?.shadowRadius = 8
-            backingView.layer?.shadowOpacity = 0.8
+            backingView.layer?.shadowColor = (isSelected ? NSColor.white : color).cgColor
+            backingView.layer?.shadowRadius = isSelected ? 8 : 3
+            backingView.layer?.shadowOpacity = isSelected ? 0.85 : 0.35
             backingView.layer?.shadowOffset = .zero
             
-            // Pulsing Ring Animation
-            let pulseLayer = CALayer()
-            pulseLayer.frame = backingView.bounds
-            pulseLayer.cornerRadius = baseSize / 2.0
-            pulseLayer.backgroundColor = color.withAlphaComponent(0.3).cgColor
-            pulseLayer.borderColor = color.withAlphaComponent(0.65).cgColor
-            pulseLayer.borderWidth = 1.2
-            
-            let scaleAnim = CABasicAnimation(keyPath: "transform.scale")
-            scaleAnim.fromValue = 1.0
-            scaleAnim.toValue = 1.65
-            
-            let opacityAnim = CABasicAnimation(keyPath: "opacity")
-            opacityAnim.fromValue = 0.85
-            opacityAnim.toValue = 0.0
-            
-            let animGroup = CAAnimationGroup()
-            animGroup.animations = [scaleAnim, opacityAnim]
-            animGroup.duration = 2.4
-            animGroup.repeatCount = .infinity
-            animGroup.timingFunction = CAMediaTimingFunction(name: .easeOut)
-            
-            pulseLayer.add(animGroup, forKey: "heatmap_pulse")
-            backingView.layer?.addSublayer(pulseLayer)
+            // Pulsing Ring Animation - only show if selected or larger cluster (count >= 10)
+            if isSelected || count >= 10 {
+                let pulseLayer = CALayer()
+                pulseLayer.frame = backingView.bounds
+                pulseLayer.cornerRadius = finalSize / 2.0
+                pulseLayer.backgroundColor = isSelected ? NSColor.white.withAlphaComponent(0.25).cgColor : color.withAlphaComponent(0.12).cgColor
+                pulseLayer.borderColor = isSelected ? NSColor.white.withAlphaComponent(0.6).cgColor : color.withAlphaComponent(0.35).cgColor
+                pulseLayer.borderWidth = isSelected ? 1.0 : 0.6
+                
+                let scaleAnim = CABasicAnimation(keyPath: "transform.scale")
+                scaleAnim.fromValue = 1.0
+                scaleAnim.toValue = isSelected ? 1.5 : 1.7
+                
+                let opacityAnim = CABasicAnimation(keyPath: "opacity")
+                opacityAnim.fromValue = isSelected ? 0.85 : 0.45
+                opacityAnim.toValue = 0.0
+                
+                let animGroup = CAAnimationGroup()
+                animGroup.animations = [scaleAnim, opacityAnim]
+                animGroup.duration = isSelected ? 2.0 : 4.0
+                animGroup.repeatCount = .infinity
+                animGroup.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                
+                pulseLayer.add(animGroup, forKey: "heatmap_pulse")
+                backingView.layer?.addSublayer(pulseLayer)
+            }
             
             // Solid center core dot
-            let coreDotSize = max(6, min(12, 4 + log2(Double(count)) * 1.5))
-            let coreDot = NSView(frame: CGRect(
-                x: (baseSize - coreDotSize) / 2.0,
-                y: (baseSize - coreDotSize) / 2.0,
+            let coreDotSize = isSelected ? max(5, min(9, 2.5 + log2(Double(count)) * 1.0)) : max(3, min(6, 1.2 + log2(Double(count)) * 0.8))
+            let coreDot = PassThroughView(frame: CGRect(
+                x: (finalSize - coreDotSize) / 2.0,
+                y: (finalSize - coreDotSize) / 2.0,
                 width: coreDotSize,
                 height: coreDotSize
             ))
@@ -209,8 +224,8 @@ struct HeatmapMapView: NSViewRepresentable {
             coreDot.layer?.backgroundColor = NSColor.white.cgColor
             coreDot.layer?.cornerRadius = coreDotSize / 2.0
             coreDot.layer?.shadowColor = NSColor.white.cgColor
-            coreDot.layer?.shadowRadius = 3
-            coreDot.layer?.shadowOpacity = 0.9
+            coreDot.layer?.shadowRadius = isSelected ? 3 : 1.5
+            coreDot.layer?.shadowOpacity = 0.85
             coreDot.layer?.shadowOffset = .zero
             
             backingView.addSubview(coreDot)
@@ -222,13 +237,8 @@ struct HeatmapMapView: NSViewRepresentable {
         func mapView(_ mapView: MKMapView, didSelect view: MKAnnotationView) {
             guard let annotation = view.annotation as? PhotoClusterAnnotation else { return }
             
-            // Zoom smoothly to centered region on selection
-            let currentSpan = mapView.region.span
-            let targetSpan = MKCoordinateSpan(
-                latitudeDelta: min(currentSpan.latitudeDelta, 12.0),
-                longitudeDelta: min(currentSpan.longitudeDelta, 12.0)
-            )
-            let region = MKCoordinateRegion(center: annotation.coordinate, span: targetSpan)
+            // Center smoothly on selection without zooming in and causing immediate split
+            let region = MKCoordinateRegion(center: annotation.coordinate, span: mapView.region.span)
             mapView.setRegion(region, animated: true)
             
             DispatchQueue.main.async {
@@ -246,7 +256,7 @@ struct HeatmapMapView: NSViewRepresentable {
         
         func mapView(_ mapView: MKMapView, regionDidChangeAnimated animated: Bool) {
             DispatchQueue.main.async {
-                self.parent.currentSpan = mapView.region.span
+                self.parent.currentRegion = mapView.region
             }
         }
     }
@@ -276,8 +286,12 @@ struct PhotosHeatmapView: View {
     @State private var centerTrigger: MKCoordinateRegion? = nil
     @State private var searchQuery: String = ""
     @State private var activeStyleSelection: MapStyleSelection = .standard
-    @State private var currentSpan = MKCoordinateSpan(latitudeDelta: 120.0, longitudeDelta: 120.0)
+    @State private var currentRegion = MKCoordinateRegion(
+        center: CLLocationCoordinate2D(latitude: 20.0, longitude: 0.0),
+        span: MKCoordinateSpan(latitudeDelta: 120.0, longitudeDelta: 120.0)
+    )
     @State private var isSidebarVisible: Bool = true
+    @State private var isStyleMenuExpanded: Bool = false
     
     enum MapStyleSelection: String, CaseIterable, Identifiable {
         case standard = "Standard"
@@ -460,7 +474,7 @@ struct PhotosHeatmapView: View {
                     selectedCluster: $selectedCluster,
                     mapType: $mapType,
                     centerTrigger: $centerTrigger,
-                    currentSpan: $currentSpan
+                    currentRegion: $currentRegion
                 )
                 .cornerRadius(16)
                 .overlay(
@@ -468,53 +482,36 @@ struct PhotosHeatmapView: View {
                         .stroke(Color.white.opacity(0.08), lineWidth: 1)
                 )
                 
-                // Floating Sidebar Toggle Button in Top-Left of Map
-                Button(action: {
-                    withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                        isSidebarVisible.toggle()
-                    }
-                }) {
-                    HStack(spacing: 6) {
-                        Image(systemName: isSidebarVisible ? "sidebar.left" : "sidebar.right")
-                            .font(.system(size: 13, weight: .bold))
-                        if !isSidebarVisible {
-                            Text("Show Sidebar")
+                // Top HUD: Sidebar toggle on the left, Zoom controls on the right (perfectly aligned)
+                HStack(alignment: .center) {
+                    // Sidebar Toggle Button
+                    Button(action: {
+                        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                            isSidebarVisible.toggle()
+                        }
+                    }) {
+                        HStack(spacing: 6) {
+                            Image(systemName: isSidebarVisible ? "sidebar.left" : "sidebar.right")
+                                .font(.system(size: 11, weight: .bold))
+                            Text("Sidebar")
                                 .font(.system(size: 10, weight: .bold, design: .rounded))
                         }
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 7)
+                        .background(Color.black.opacity(0.4))
+                        .cornerRadius(8)
                     }
-                    .foregroundColor(.white)
-                    .padding(.horizontal, isSidebarVisible ? 10 : 12)
-                    .padding(.vertical, 8)
-                    .background(Color.black.opacity(0.4))
-                    .cornerRadius(8)
-                }
-                .buttonStyle(.plain)
-                .glassCardHoverEffect(cornerRadius: 8)
-                .padding(16)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                
-                // Floating Style and Zoom HUD in Top-Right
-                VStack(spacing: 12) {
-                    // Map Style Picker
-                    Picker("", selection: $activeStyleSelection) {
-                        ForEach(MapStyleSelection.allCases) { style in
-                            Text(style.rawValue).tag(style)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    .frame(width: 220)
-                    .onChange(of: activeStyleSelection) { newValue in
-                        mapType = newValue.mkType
-                    }
-                    .background(VisualEffectView(material: .hudWindow, blendingMode: .withinWindow))
-                    .cornerRadius(8)
-                    .shadow(radius: 6)
+                    .buttonStyle(.plain)
+                    .glassCardHoverEffect(cornerRadius: 8)
+                    
+                    Spacer()
                     
                     // Zoom Controllers
                     HStack(spacing: 8) {
                         Button(action: zoomIn) {
                             Image(systemName: "plus")
-                                .font(.system(size: 12, weight: .bold))
+                                .font(.system(size: 11, weight: .bold))
                                 .frame(width: 28, height: 28)
                                 .background(Color.black.opacity(0.4))
                                 .cornerRadius(6)
@@ -524,7 +521,7 @@ struct PhotosHeatmapView: View {
                         
                         Button(action: zoomOut) {
                             Image(systemName: "minus")
-                                .font(.system(size: 12, weight: .bold))
+                                .font(.system(size: 11, weight: .bold))
                                 .frame(width: 28, height: 28)
                                 .background(Color.black.opacity(0.4))
                                 .cornerRadius(6)
@@ -535,7 +532,7 @@ struct PhotosHeatmapView: View {
                         Button(action: fitAll) {
                             HStack(spacing: 4) {
                                 Image(systemName: "arrow.up.left.and.down.right.and.arrow.up.right.and.down.left")
-                                    .font(.system(size: 10, weight: .bold))
+                                    .font(.system(size: 9, weight: .bold))
                                 Text("Fit Mapped")
                                     .font(.system(size: 9, weight: .bold))
                             }
@@ -550,7 +547,57 @@ struct PhotosHeatmapView: View {
                     .foregroundColor(.white)
                 }
                 .padding(16)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                
+                // Floating Collapsible Style Picker HUD in Bottom-Right
+                VStack(alignment: .trailing, spacing: 8) {
+                    if isStyleMenuExpanded {
+                        VStack(spacing: 6) {
+                            ForEach(MapStyleSelection.allCases) { style in
+                                Button(action: {
+                                    withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
+                                        activeStyleSelection = style
+                                        mapType = style.mkType
+                                        isStyleMenuExpanded = false
+                                    }
+                                }) {
+                                    Text(style.rawValue)
+                                        .font(.system(size: 10, weight: .semibold, design: .rounded))
+                                        .foregroundColor(activeStyleSelection == style ? .emerald : .white.opacity(0.85))
+                                        .frame(width: 80, height: 24)
+                                        .background(activeStyleSelection == style ? Color.emerald.opacity(0.12) : Color.clear)
+                                        .cornerRadius(4)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .padding(6)
+                        .background(Color.black.opacity(0.65))
+                        .cornerRadius(8)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(Color.white.opacity(0.08), lineWidth: 1)
+                        )
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
+                    
+                    Button(action: {
+                        withAnimation(.spring(response: 0.28, dampingFraction: 0.8)) {
+                            isStyleMenuExpanded.toggle()
+                        }
+                    }) {
+                        Image(systemName: "square.3.stack.3d")
+                            .font(.system(size: 13, weight: .bold))
+                            .frame(width: 32, height: 32)
+                            .background(Color.black.opacity(0.4))
+                            .cornerRadius(8)
+                            .foregroundColor(.white)
+                    }
+                    .buttonStyle(.plain)
+                    .glassCardHoverEffect(cornerRadius: 8)
+                }
+                .padding(16)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
                 
                 // Floating Details Popup in Bottom-Left
                 if let cluster = selectedCluster {
@@ -679,28 +726,34 @@ struct PhotosHeatmapView: View {
     
     // Dynamic granularity clusters computed on the map visible span delta
     private var mapClusters: [MappedCluster] {
-        let delta = currentSpan.latitudeDelta
+        let delta = currentRegion.span.latitudeDelta
         var dict: [String: [Photo]] = [:]
         
         for photo in manager.photos {
             guard let lat = photo.latitude, let lon = photo.longitude else { continue }
             
             let key: String
-            if delta > 15.0 {
-                // Country/Continent Zoom: Group by City/Country
+            if delta > 40.0 {
+                // World Zoom: Group by Country
+                key = photo.countryName ?? "Unknown Country"
+            } else if delta > 8.0 {
+                // Continent/Country Zoom: Group by City/Country
                 if let city = photo.cityName, let country = photo.countryName {
                     key = "\(city), \(country)"
                 } else {
                     key = String(format: "%.1f,%.1f", lat, lon)
                 }
-            } else if delta > 1.5 {
-                // City/Region Zoom: Group by 2 decimal places (~1.1km)
+            } else if delta > 2.0 {
+                // Regional/State Zoom: Group by 1 decimal place (~11km)
+                key = String(format: "%.1f,%.1f", lat, lon)
+            } else if delta > 0.4 {
+                // City Zoom: Group by 2 decimal places (~1.1km)
                 key = String(format: "%.2f,%.2f", lat, lon)
-            } else if delta > 0.15 {
+            } else if delta > 0.08 {
                 // Neighborhood Zoom: Group by 3 decimal places (~110m)
                 key = String(format: "%.3f,%.3f", lat, lon)
             } else {
-                // Block/Street Zoom: Group by 4 decimal places (~11m)
+                // Street/Block Zoom: Group by 4 decimal places (~11m)
                 key = String(format: "%.4f,%.4f", lat, lon)
             }
             
@@ -834,25 +887,21 @@ struct PhotosHeatmapView: View {
     }
     
     private func zoomIn() {
-        // We will trigger a change via centerTrigger. To zoom in, we can divide the delta by 2.
-        // If we don't have a specific location, we zoom in to center.
-        let targetCenter = selectedCluster?.coordinate ?? CLLocationCoordinate2D(latitude: 20.0, longitude: 0.0)
-        let delta: Double = selectedCluster != nil ? 4.0 : 30.0
-        let region = MKCoordinateRegion(
-            center: targetCenter,
-            span: MKCoordinateSpan(latitudeDelta: delta, longitudeDelta: delta)
+        let current = currentRegion
+        let nextSpan = MKCoordinateSpan(
+            latitudeDelta: max(0.002, current.span.latitudeDelta / 2.5),
+            longitudeDelta: max(0.002, current.span.longitudeDelta / 2.5)
         )
-        centerTrigger = region
+        centerTrigger = MKCoordinateRegion(center: current.center, span: nextSpan)
     }
     
     private func zoomOut() {
-        let targetCenter = selectedCluster?.coordinate ?? CLLocationCoordinate2D(latitude: 20.0, longitude: 0.0)
-        let delta: Double = selectedCluster != nil ? 30.0 : 120.0
-        let region = MKCoordinateRegion(
-            center: targetCenter,
-            span: MKCoordinateSpan(latitudeDelta: delta, longitudeDelta: delta)
+        let current = currentRegion
+        let nextSpan = MKCoordinateSpan(
+            latitudeDelta: min(140.0, current.span.latitudeDelta * 2.5),
+            longitudeDelta: min(300.0, current.span.longitudeDelta * 2.5)
         )
-        centerTrigger = region
+        centerTrigger = MKCoordinateRegion(center: current.center, span: nextSpan)
     }
     
     // Sidebar colors helper
