@@ -1021,6 +1021,53 @@ struct PhotosHeatmapView: View {
                                 }
                             }
                             
+                            // Individual Photos List
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("Captures in Hub")
+                                    .font(.system(size: 8, weight: .bold))
+                                    .foregroundColor(.secondary)
+                                    .textCase(.uppercase)
+                                
+                                ScrollView(.vertical, showsIndicators: true) {
+                                    VStack(spacing: 4) {
+                                        ForEach(cluster.photos) { photo in
+                                            HStack(spacing: 6) {
+                                                Image(systemName: photo.mediaType == "Video" ? "video.fill" : "photo.fill")
+                                                    .font(.system(size: 8))
+                                                    .foregroundColor(.emerald.opacity(0.7))
+                                                
+                                                Text(photo.filename)
+                                                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                                                    .foregroundColor(.white.opacity(0.85))
+                                                    .lineLimit(1)
+                                                
+                                                Spacer()
+                                                
+                                                if manager.sourceMode == .direct {
+                                                    Button(action: {
+                                                        manager.revealPhotoInPhotosApp(photoId: photo.id)
+                                                    }) {
+                                                        Image(systemName: "arrow.up.forward.app")
+                                                            .font(.system(size: 9, weight: .bold))
+                                                            .foregroundColor(.emerald)
+                                                    }
+                                                    .buttonStyle(.plain)
+                                                    .help("Reveal photo in Photos app")
+                                                }
+                                            }
+                                            .padding(.horizontal, 6)
+                                            .padding(.vertical, 4)
+                                            .background(Color.white.opacity(0.03))
+                                            .cornerRadius(6)
+                                        }
+                                    }
+                                }
+                                .frame(height: 90)
+                                .padding(4)
+                                .background(Color.black.opacity(0.15))
+                                .cornerRadius(6)
+                            }
+                            
                             // Fly to Zoom closer
                             Button(action: {
                                 zoomCloserTo(cluster)
@@ -1043,7 +1090,7 @@ struct PhotosHeatmapView: View {
                         }
                         .padding(16)
                     }
-                    .frame(width: 240)
+                    .frame(width: 290)
                     .padding(16)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                     .animation(.spring(), value: selectedCluster)

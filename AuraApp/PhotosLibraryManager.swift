@@ -353,6 +353,27 @@ class PhotosLibraryManager: ObservableObject {
         try? process.run()
     }
     
+    // Reveal a specific photo in the Photos app
+    func revealPhotoInPhotosApp(photoId: String) {
+        guard sourceMode == .direct else { return }
+        
+        let scriptText = """
+        tell application "Photos"
+            activate
+            try
+                set targetPhoto to media item id "\(photoId)"
+                spotlight targetPhoto
+            end try
+        end tell
+        """
+        
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+        process.arguments = ["-e", scriptText]
+        try? process.run()
+    }
+
+    
     // MARK: - Direct Apple Photos Connection (JXA Engine)
     
     func fetchDirectLibrary(forceLaunch: Bool = false) async {

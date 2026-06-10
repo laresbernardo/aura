@@ -108,7 +108,12 @@ struct PhotosPlacesView: View {
                         value: manager.maxAltitudeFormatted,
                         subtitle: manager.maxAltitudeDetails,
                         icon: "mountain.2.fill",
-                        gradient: LinearGradient(colors: [.emerald, .teal], startPoint: .topLeading, endPoint: .bottomTrailing)
+                        gradient: LinearGradient(colors: [.emerald, .teal], startPoint: .topLeading, endPoint: .bottomTrailing),
+                        action: manager.sourceMode == .direct ? {
+                            if let photo = manager.maxAltitudePhoto {
+                                manager.revealPhotoInPhotosApp(photoId: photo.id)
+                            }
+                        } : nil
                     )
                     
                     // KPI 3: Northern-most Photo
@@ -117,7 +122,12 @@ struct PhotosPlacesView: View {
                         value: manager.northernMostFormatted,
                         subtitle: manager.northernMostDetails,
                         icon: "arrow.up.circle.fill",
-                        gradient: LinearGradient(colors: [.indigo, .purple], startPoint: .topLeading, endPoint: .bottomTrailing)
+                        gradient: LinearGradient(colors: [.indigo, .purple], startPoint: .topLeading, endPoint: .bottomTrailing),
+                        action: manager.sourceMode == .direct ? {
+                            if let photo = manager.northernMostPhoto {
+                                manager.revealPhotoInPhotosApp(photoId: photo.id)
+                            }
+                        } : nil
                     )
                     
                     // KPI 4: Southern-most Photo
@@ -126,7 +136,12 @@ struct PhotosPlacesView: View {
                         value: manager.southernMostFormatted,
                         subtitle: manager.southernMostDetails,
                         icon: "arrow.down.circle.fill",
-                        gradient: LinearGradient(colors: [.orange, .pink], startPoint: .topLeading, endPoint: .bottomTrailing)
+                        gradient: LinearGradient(colors: [.orange, .pink], startPoint: .topLeading, endPoint: .bottomTrailing),
+                        action: manager.sourceMode == .direct ? {
+                            if let photo = manager.southernMostPhoto {
+                                manager.revealPhotoInPhotosApp(photoId: photo.id)
+                            }
+                        } : nil
                     )
                 }
                 

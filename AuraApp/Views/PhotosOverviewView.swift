@@ -326,6 +326,7 @@ struct PhotosMetricCard: View {
     let subtitle: String
     let icon: String
     let gradient: LinearGradient
+    var action: (() -> Void)? = nil
     
     @State private var isHovered = false
     
@@ -340,6 +341,17 @@ struct PhotosMetricCard: View {
                         .lineLimit(1)
                     
                     Spacer()
+                    
+                    if let action = action {
+                        Button(action: action) {
+                            Image(systemName: "arrow.up.forward.app")
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundColor(.emerald)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Reveal photo in Photos app")
+                        .padding(.trailing, 4)
+                    }
                     
                     Image(systemName: icon)
                         .font(.system(size: 14))
