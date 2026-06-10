@@ -92,7 +92,7 @@ struct PhotosPlacesView: View {
                 }
                 
                 // MARK: - Places KPIs
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 16), count: 5), spacing: 20) {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 16), count: 4), spacing: 20) {
                     // KPI 1: Total Countries
                     PhotosMetricCard(
                         title: "Countries Visited",
@@ -127,15 +127,6 @@ struct PhotosPlacesView: View {
                         subtitle: manager.southernMostDetails,
                         icon: "arrow.down.circle.fill",
                         gradient: LinearGradient(colors: [.orange, .pink], startPoint: .topLeading, endPoint: .bottomTrailing)
-                    )
-                    
-                    // KPI 5: Top Travel Spot
-                    PhotosMetricCard(
-                        title: "Top Travel Spot",
-                        value: topDestinationValue,
-                        subtitle: topDestinationSubtitle,
-                        icon: "mappin.and.ellipse",
-                        gradient: LinearGradient(colors: [.orange, .red], startPoint: .topLeading, endPoint: .bottomTrailing)
                     )
                 }
                 
@@ -342,25 +333,6 @@ struct PhotosPlacesView: View {
                     count: data.shots
                 )
             }.sorted(by: { $0.count > $1.count })
-        }
-    }
-    
-    private var topDestinationValue: String {
-        let list = groupedDestinations
-        guard let first = list.first else { return "Unknown Spot" }
-        if destinationGrouping == .city {
-            return "\(first.name), \(first.subname)"
-        } else {
-            return first.name
-        }
-    }
-    
-    private var topDestinationSubtitle: String {
-        switch destinationGrouping {
-        case .city:
-            return "City with the most captures"
-        case .country:
-            return "Country with the most captures"
         }
     }
 }

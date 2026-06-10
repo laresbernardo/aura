@@ -125,6 +125,13 @@ struct AltitudeBucket: Identifiable, Hashable {
     let count: Int
 }
 
+struct HistogramDataPoint: Identifiable, Hashable {
+    let id = UUID()
+    let intKey: Int
+    let label: String
+    let count: Int
+}
+
 // MARK: - Photos Library Manager
 @MainActor
 class PhotosLibraryManager: ObservableObject {
@@ -232,14 +239,20 @@ class PhotosLibraryManager: ObservableObject {
                     return "GoPro \(kvc)" // e.g. "GoPro HERO9 Black"
                 }
             }
-            if lowerKvc.contains("iphone") || lowerKvc.contains("apple") {
-                return "iPhone"
+            if lowerKvc.contains("iphone") {
+                if kvc.hasPrefix("Apple ") {
+                    return String(kvc.dropFirst(6)) // "Apple iPhone 15 Pro" -> "iPhone 15 Pro"
+                }
+                return kvc
+            }
+            if lowerKvc.contains("apple") {
+                return kvc // E.g. "Apple Watch"
             }
             return kvc
         }
         
-        // Fallback to filename heuristics (GoPro: GOPR, GP, G0, gopro; otherwise iPhone)
-        if lowerFn.hasPrefix("gopr") || lowerFn.hasPrefix("gp") || lowerFn.hasPrefix("g0") || lowerFn.contains("gopro") {
+        // Fallback to filename heuristics (GoPro: GOPR, GP, G0, GX, GH, gopro; otherwise iPhone)
+        if lowerFn.hasPrefix("gopr") || lowerFn.hasPrefix("gp") || lowerFn.hasPrefix("g0") || lowerFn.hasPrefix("gx") || lowerFn.hasPrefix("gh") || lowerFn.contains("gopro") {
             return "GoPro HERO"
         }
         
@@ -695,7 +708,7 @@ class PhotosLibraryManager: ObservableObject {
                 country = "United States"
                 lat = 37.7749 + Double.random(in: -0.05...0.05)
                 lon = -122.4194 + Double.random(in: -0.05...0.05)
-                camera = "iPhone"
+                camera = ["iPhone 15 Pro", "iPhone 14 Pro", "iPhone 13 Mini", "iPhone 12"].randomElement()!
                 altitude = Double.random(in: 10...60)
             } else {
                 let d = destinations[destIdx]
@@ -703,7 +716,14 @@ class PhotosLibraryManager: ObservableObject {
                 country = d.country
                 lat = d.lat + Double.random(in: -0.01...0.01)
                 lon = d.lon + Double.random(in: -0.01...0.01)
-                camera = d.camera
+                
+                if d.camera == "iPhone" {
+                    camera = ["iPhone 15 Pro", "iPhone 14 Pro", "iPhone 13 Mini", "iPhone 12"].randomElement()!
+                } else if d.camera == "GoPro HERO" {
+                    camera = ["GoPro HERO10 Black", "GoPro HERO11 Black", "GoPro HERO9 Black"].randomElement()!
+                } else {
+                    camera = d.camera
+                }
                 
                 if d.camera == "GoPro HERO" {
                     altitude = Double.random(in: 40...140) // Drone shots elevation!
@@ -900,6 +920,92 @@ class PhotosLibraryManager: ObservableObject {
             counts[hour, default: 0] += 1
         }
         return counts
+    }
+    
+    // ─── Granular Histogram Data Calculations ───
+    
+    var hourlyHistogramData: [HistogramDataPoint] {
+        let counts = captureHourCounts
+        return (0..<24).map { hour in
+            let suffix = hour >= 12 ? "PM" : "AM"
+            let val = hour == 0 ? 12 : (hour > 12 ? hour - 12 : hour)
+            let label = "\(val) \(suffix)"
+            return HistogramDataPoint(intKey: hour, label: label, count: counts[hour, default: 0])
+        }
+    }
+    
+    var weekdayHistogramData: [HistogramDataPoint] {
+        var counts: [Int: Int] = [:]
+        var cal = Calendar.current
+        cal.timeZone = TimeZone.current
+        for item in photos {
+            let weekday = cal.component(.weekday, from: item.capturedDate)
+            counts[weekday, default: 0] += 1
+        }
+        let formatter = DateFormatter()
+        let symbols = formatter.shortWeekdaySymbols ?? ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+        // Calendar component .weekday returns 1 for Sunday, 7 for Saturday.
+        return (1...7).map { day in
+            let label = symbols[day - 1]
+            return HistogramDataPoint(intKey: day, label: label, count: counts[day, default: 0])
+        }
+    }
+    
+    var dayOfMonthHistogramData: [HistogramDataPoint] {
+        var counts: [Int: Int] = [:]
+        var cal = Calendar.current
+        cal.timeZone = TimeZone.current
+        for item in photos {
+            let day = cal.component(.day, from: item.capturedDate)
+            counts[day, default: 0] += 1
+        }
+        return (1...31).map { day in
+            return HistogramDataPoint(intKey: day, label: "\(day)", count: counts[day, default: 0])
+        }
+    }
+    
+    var monthHistogramData: [HistogramDataPoint] {
+        var counts: [Int: Int] = [:]
+        var cal = Calendar.current
+        cal.timeZone = TimeZone.current
+        for item in photos {
+            let month = cal.component(.month, from: item.capturedDate)
+            counts[month, default: 0] += 1
+        }
+        let formatter = DateFormatter()
+        let symbols = formatter.shortMonthSymbols ?? ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+        return (1...12).map { month in
+            let label = symbols[month - 1]
+            return HistogramDataPoint(intKey: month, label: label, count: counts[month, default: 0])
+        }
+    }
+
+    // Peak Shooting Weekday Calculations
+    
+    var peakWeekday: String {
+        var counts: [Int: Int] = [:]
+        var cal = Calendar.current
+        cal.timeZone = TimeZone.current
+        for item in photos {
+            let day = cal.component(.weekday, from: item.capturedDate)
+            counts[day, default: 0] += 1
+        }
+        guard let peakDay = counts.max(by: { $0.value < $1.value })?.key else { return "Unknown Day" }
+        let formatter = DateFormatter()
+        let symbols = formatter.weekdaySymbols ?? ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+        return symbols[peakDay - 1]
+    }
+    
+    var peakWeekdayPercentage: Double {
+        var counts: [Int: Int] = [:]
+        var cal = Calendar.current
+        cal.timeZone = TimeZone.current
+        for item in photos {
+            let day = cal.component(.weekday, from: item.capturedDate)
+            counts[day, default: 0] += 1
+        }
+        guard let peakCount = counts.values.max(), totalAssetsCount > 0 else { return 0.0 }
+        return (Double(peakCount) / Double(totalAssetsCount)) * 100.0
     }
     
     // Categorize temporal photo capture slots

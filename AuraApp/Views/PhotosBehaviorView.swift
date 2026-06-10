@@ -4,7 +4,8 @@ import Charts
 struct PhotosBehaviorView: View {
     @ObservedObject var manager: PhotosLibraryManager
     
-    @State private var hoveredHour: Int? = nil
+    @State private var selectedGranularity: CaptureGranularity = .hour
+    @State private var hoveredKey: Int? = nil
     @State private var hoveredCamera: String? = nil
     @State private var hoveredCrop: String? = nil
     
@@ -25,12 +26,12 @@ struct PhotosBehaviorView: View {
                 
                 // MARK: - Behavioral KPIs
                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 20) {
-                    // KPI 1: Golden Hour Focus
+                    // KPI 1: Peak Shooting Day
                     PhotosMetricCard(
-                        title: "Golden Hour Snaps",
-                        value: "\(goldenHourCount.formatted()) Captures",
-                        subtitle: String(format: "%.1f%% of library taken at sunset", goldenHourPercentage),
-                        icon: "sunset.fill",
+                        title: "Peak Shooting Day",
+                        value: manager.peakWeekday,
+                        subtitle: String(format: "%.1f%% of library captures", manager.peakWeekdayPercentage),
+                        icon: "calendar.badge.clock",
                         gradient: LinearGradient(colors: [.orange, .pink], startPoint: .topLeading, endPoint: .bottomTrailing)
                     )
                     
@@ -53,33 +54,45 @@ struct PhotosBehaviorView: View {
                     )
                 }
                 
-                // MARK: - Hourly Capture Rhythms
+                // MARK: - Capture Time Distribution
                 GlassCard {
                     VStack(alignment: .leading, spacing: 18) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            HStack {
-                                Image(systemName: "clock.fill")
-                                    .foregroundColor(.emerald)
-                                Text("Hourly Capture Distribution")
-                                    .font(.headline)
-                                    .foregroundColor(.white)
+                        HStack(alignment: .top) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack {
+                                    Image(systemName: "chart.histogram.fill")
+                                        .foregroundColor(.emerald)
+                                    Text("Capture Time Distribution")
+                                        .font(.headline)
+                                        .foregroundColor(.white)
+                                }
+                                Text(granularityDescription)
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
                             }
-                            Text("Total counts grouped by hourly capture blocks across a 24-hour cycle")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
+                            
+                            Spacer()
+                            
+                            Picker("", selection: $selectedGranularity) {
+                                ForEach(CaptureGranularity.allCases) { gran in
+                                    Text(gran.rawValue).tag(gran)
+                                }
+                            }
+                            .pickerStyle(.segmented)
+                            .labelsHidden()
+                            .frame(width: 340)
                         }
                         
-                        if manager.captureHourCounts.isEmpty {
+                        if activeHistogramData.isEmpty {
                             Text("No time metrics found.")
                                 .foregroundColor(.secondary)
                                 .frame(height: 200)
                         } else {
                             Chart {
-                                ForEach(0..<24, id: \.self) { hour in
-                                    let count = manager.captureHourCounts[hour] ?? 0
+                                ForEach(activeHistogramData) { dataPoint in
                                     BarMark(
-                                        x: .value("Hour", hour),
-                                        y: .value("Captures", count)
+                                        x: .value(selectedGranularity.rawValue, dataPoint.intKey),
+                                        y: .value("Captures", dataPoint.count)
                                     )
                                     .foregroundStyle(
                                         LinearGradient(
@@ -90,8 +103,8 @@ struct PhotosBehaviorView: View {
                                     )
                                     .cornerRadius(4)
                                     .annotation(position: .top) {
-                                        if hoveredHour == hour && count > 0 {
-                                            Text(count.formatted())
+                                        if hoveredKey == dataPoint.intKey && dataPoint.count > 0 {
+                                            Text(dataPoint.count.formatted())
                                                 .font(.system(size: 10, weight: .bold, design: .rounded))
                                                 .foregroundColor(.white)
                                                 .padding(.horizontal, 6)
@@ -111,13 +124,13 @@ struct PhotosBehaviorView: View {
                                         .onContinuousHover { phase in
                                             switch phase {
                                             case .active(let location):
-                                                if let hour: Int = proxy.value(atX: location.x) {
-                                                    hoveredHour = hour
+                                                if let key: Int = proxy.value(atX: location.x) {
+                                                    hoveredKey = key
                                                 } else {
-                                                    hoveredHour = nil
+                                                    hoveredKey = nil
                                                 }
                                             case .ended:
-                                                hoveredHour = nil
+                                                hoveredKey = nil
                                             }
                                         }
                                 }
@@ -130,14 +143,15 @@ struct PhotosBehaviorView: View {
                                 }
                             }
                             .chartXAxis {
-                                AxisMarks(values: [0, 3, 6, 9, 12, 15, 18, 21, 23]) { value in
-                                    if let hour = value.as(Int.self) {
-                                        AxisValueLabel(hourLabel(hour))
+                                AxisMarks(values: xAxisValues) { value in
+                                    if let key = value.as(Int.self) {
+                                        AxisValueLabel(xAxisLabel(for: key))
                                             .foregroundStyle(.white.opacity(0.8))
                                             .font(.system(size: 9, design: .rounded))
                                     }
                                 }
                             }
+                            .chartXScale(domain: xScaleDomain)
                             .frame(height: 200)
                             .padding(.vertical, 8)
                         }
@@ -319,16 +333,91 @@ struct PhotosBehaviorView: View {
     
     // MARK: - Auxiliary Computations & Helpers
     
-    private var goldenHourCount: Int {
-        return manager.photos.filter { item in
-            let hour = Calendar.current.component(.hour, from: item.capturedDate)
-            return hour >= 17 && hour < 20 // 5 PM - 8 PM Sunset/Golden glow
-        }.count
+    enum CaptureGranularity: String, CaseIterable, Identifiable {
+        case hour = "Hour of Day"
+        case weekday = "Day of Week"
+        case dayOfMonth = "Day of Month"
+        case month = "Month"
+        
+        var id: String { rawValue }
     }
     
-    private var goldenHourPercentage: Double {
-        guard manager.totalAssetsCount > 0 else { return 0.0 }
-        return (Double(goldenHourCount) / Double(manager.totalAssetsCount)) * 100.0
+    private var activeHistogramData: [HistogramDataPoint] {
+        switch selectedGranularity {
+        case .hour:
+            return manager.hourlyHistogramData
+        case .weekday:
+            return manager.weekdayHistogramData
+        case .dayOfMonth:
+            return manager.dayOfMonthHistogramData
+        case .month:
+            return manager.monthHistogramData
+        }
+    }
+    
+    private var granularityDescription: String {
+        switch selectedGranularity {
+        case .hour:
+            return "Total counts grouped by hourly capture blocks across a 24-hour cycle"
+        case .weekday:
+            return "Total counts grouped by day of the week (Monday through Sunday)"
+        case .dayOfMonth:
+            return "Total counts grouped by day of the month (1st through 31st)"
+        case .month:
+            return "Total counts grouped by calendar month (January through December)"
+        }
+    }
+    
+    private var xAxisValues: [Int] {
+        switch selectedGranularity {
+        case .hour:
+            return [0, 3, 6, 9, 12, 15, 18, 21, 23]
+        case .weekday:
+            return Array(1...7)
+        case .dayOfMonth:
+            return [1, 5, 10, 15, 20, 25, 30, 31]
+        case .month:
+            return Array(1...12)
+        }
+    }
+    
+    private var xScaleDomain: ClosedRange<Int> {
+        switch selectedGranularity {
+        case .hour:
+            return 0...23
+        case .weekday:
+            return 1...7
+        case .dayOfMonth:
+            return 1...31
+        case .month:
+            return 1...12
+        }
+    }
+    
+    private func xAxisLabel(for key: Int) -> String {
+        switch selectedGranularity {
+        case .hour:
+            switch key {
+            case 0: return "12 AM"
+            case 12: return "12 PM"
+            default:
+                let suffix = key >= 12 ? "PM" : "AM"
+                let val = key > 12 ? key - 12 : key
+                return "\(val) \(suffix)"
+            }
+        case .weekday:
+            let formatter = DateFormatter()
+            let symbols = formatter.shortWeekdaySymbols ?? ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+            guard key >= 1 && key <= 7 else { return "" }
+            return symbols[key - 1]
+        case .dayOfMonth:
+            return "\(key)"
+        case .month:
+            let formatter = DateFormatter()
+            let symbols = formatter.shortMonthSymbols ?? ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+            guard key >= 1 && key <= 12 else { return "" }
+            return symbols[key - 1]
+        }
     }
     
     private var primaryCameraName: String {
@@ -337,16 +426,5 @@ struct PhotosBehaviorView: View {
     
     private var favoriteCropCategory: String {
         return manager.aspectRatios.first?.category ?? "Unknown Crop"
-    }
-    
-    private func hourLabel(_ hour: Int) -> String {
-        switch hour {
-        case 0: return "12 AM"
-        case 12: return "12 PM"
-        default:
-            let suffix = hour >= 12 ? "PM" : "AM"
-            let val = hour > 12 ? hour - 12 : hour
-            return "\(val) \(suffix)"
-        }
     }
 }

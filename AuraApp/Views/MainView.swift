@@ -18,8 +18,8 @@ enum MusicTab: String, CaseIterable {
 
 enum PhotosTab: String, CaseIterable {
     case photosOverview = "Overview"
-    case photosBehavior = "Capture Behavior"
     case photosPlaces = "Places & Journeys"
+    case photosBehavior = "Capture Behavior"
     case photosAura = "Photo Aura"
 }
 
