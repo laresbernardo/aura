@@ -1018,10 +1018,203 @@ struct NiceDateRangePickerButton: View {
     let onDatesChanged: () -> Void
     @State private var isPopoverPresented = false
     
+    @State private var startDateText = ""
+    @State private var endDateText = ""
+    
     private func formattedDate(_ date: Date) -> String {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd"
         return formatter.string(from: date)
+    }
+    
+    private func parseDate(_ string: String) -> Date? {
+        let clean = string.trimmingCharacters(in: .whitespacesAndNewlines)
+        let formats = ["yyyy-MM-dd", "yyyy/MM/dd", "MM-dd-yyyy", "MM/dd/yyyy"]
+        let formatter = DateFormatter()
+        for format in formats {
+            formatter.dateFormat = format
+            if let date = formatter.date(from: clean) {
+                return date
+            }
+        }
+        return nil
+    }
+    
+    enum PresetRange: String, CaseIterable, Identifiable {
+        case allTime = "All Time"
+        case last30Days = "Last 30 Days"
+        case currentYear = "Current Year"
+        case lastYear = "Last Year"
+        case last5Years = "Last 5 Years"
+        case last10Years = "Last 10 Years"
+        
+        var id: String { rawValue }
+    }
+    
+    private func presetStartDate(for preset: PresetRange, now: Date) -> Date {
+        let calendar = Calendar.current
+        switch preset {
+        case .allTime:
+            return calendar.date(from: DateComponents(year: 1950, month: 1, day: 1)) ?? now
+        case .last30Days:
+            return calendar.date(byAdding: .day, value: -30, to: now) ?? now
+        case .currentYear:
+            let currentYear = calendar.component(.year, from: now)
+            return calendar.date(from: DateComponents(year: currentYear, month: 1, day: 1)) ?? now
+        case .lastYear:
+            let lastYear = calendar.component(.year, from: now) - 1
+            return calendar.date(from: DateComponents(year: lastYear, month: 1, day: 1)) ?? now
+        case .last5Years:
+            return calendar.date(byAdding: .year, value: -5, to: now) ?? now
+        case .last10Years:
+            return calendar.date(byAdding: .year, value: -10, to: now) ?? now
+        }
+    }
+    
+    private func presetEndDate(for preset: PresetRange, now: Date) -> Date {
+        let calendar = Calendar.current
+        switch preset {
+        case .allTime, .last30Days, .currentYear, .last5Years, .last10Years:
+            return now
+        case .lastYear:
+            let lastYear = calendar.component(.year, from: now) - 1
+            return calendar.date(from: DateComponents(year: lastYear, month: 12, day: 31, hour: 23, minute: 59, second: 59)) ?? now
+        }
+    }
+    
+    private func isPresetActive(_ preset: PresetRange) -> Bool {
+        let now = Date()
+        let calendar = Calendar.current
+        let startOfToday = calendar.startOfDay(for: now)
+        let startOfPresetStart = calendar.startOfDay(for: presetStartDate(for: preset, now: now))
+        let startOfPresetEnd = calendar.startOfDay(for: presetEndDate(for: preset, now: now))
+        
+        let currentStart = calendar.startOfDay(for: startDate)
+        let currentEnd = calendar.startOfDay(for: endDate)
+        
+        return abs(currentStart.timeIntervalSince(startOfPresetStart)) < 3600 &&
+               abs(currentEnd.timeIntervalSince(startOfPresetEnd)) < 3600
+    }
+    
+    private func applyPreset(_ preset: PresetRange) {
+        let now = Date()
+        startDate = presetStartDate(for: preset, now: now)
+        endDate = presetEndDate(for: preset, now: now)
+        onDatesChanged()
+    }
+    
+    private var startYear: Int {
+        Calendar.current.component(.year, from: startDate)
+    }
+
+    private var startMonth: Int {
+        Calendar.current.component(.month, from: startDate)
+    }
+
+    private var endYear: Int {
+        Calendar.current.component(.year, from: endDate)
+    }
+
+    private var endMonth: Int {
+        Calendar.current.component(.month, from: endDate)
+    }
+
+    private var startYearsList: [Int] {
+        let currentYear = Calendar.current.component(.year, from: Date())
+        let maxYear = min(endYear, currentYear)
+        return Array(1940...maxYear).reversed()
+    }
+
+    private var startMonthsList: [(String, Int)] {
+        let allMonths = [
+            ("Jan", 1), ("Feb", 2), ("Mar", 3), ("Apr", 4), ("May", 5), ("Jun", 6),
+            ("Jul", 7), ("Aug", 8), ("Sep", 9), ("Oct", 10), ("Nov", 11), ("Dec", 12)
+        ]
+        if startYear >= endYear {
+            return allMonths.filter { $0.1 <= endMonth }
+        }
+        return allMonths
+    }
+
+    private var endYearsList: [Int] {
+        let currentYear = Calendar.current.component(.year, from: Date())
+        let minYear = startYear
+        return Array(minYear...currentYear).reversed()
+    }
+
+    private var endMonthsList: [(String, Int)] {
+        let allMonths = [
+            ("Jan", 1), ("Feb", 2), ("Mar", 3), ("Apr", 4), ("May", 5), ("Jun", 6),
+            ("Jul", 7), ("Aug", 8), ("Sep", 9), ("Oct", 10), ("Nov", 11), ("Dec", 12)
+        ]
+        if endYear <= startYear {
+            return allMonths.filter { $0.1 >= startMonth }
+        }
+        return allMonths
+    }
+    
+    private func monthName(for month: Int) -> String {
+        let allMonths = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+        guard month >= 1 && month <= 12 else { return "Month" }
+        return allMonths[month - 1]
+    }
+    
+    private func jumpToYear(_ year: Int, isStart: Bool) {
+        let calendar = Calendar.current
+        var date = isStart ? startDate : endDate
+        var components = calendar.dateComponents([.year, .month, .day, .hour, .minute, .second], from: date)
+        components.year = year
+        
+        if let newDate = calendar.date(from: components) {
+            date = newDate
+        } else {
+            components.day = 1
+            if let newDate = calendar.date(from: components) {
+                date = newDate
+            }
+        }
+        
+        if isStart {
+            if date > endDate {
+                endDate = date
+            }
+            startDate = date
+        } else {
+            if date < startDate {
+                startDate = date
+            }
+            endDate = date
+        }
+        onDatesChanged()
+    }
+
+    private func jumpToMonth(_ month: Int, isStart: Bool) {
+        let calendar = Calendar.current
+        var date = isStart ? startDate : endDate
+        var components = calendar.dateComponents([.year, .month, .day, .hour, .minute, .second], from: date)
+        components.month = month
+        
+        if let newDate = calendar.date(from: components) {
+            date = newDate
+        } else {
+            components.day = 1
+            if let newDate = calendar.date(from: components) {
+                date = newDate
+            }
+        }
+        
+        if isStart {
+            if date > endDate {
+                endDate = date
+            }
+            startDate = date
+        } else {
+            if date < startDate {
+                startDate = date
+            }
+            endDate = date
+        }
+        onDatesChanged()
     }
     
     var body: some View {
@@ -1058,140 +1251,421 @@ struct NiceDateRangePickerButton: View {
         }
         .buttonStyle(.plain)
         .popover(isPresented: $isPopoverPresented, arrowEdge: .bottom) {
-            let useVerticalLayout = (NSApp.keyWindow?.frame.width ?? 800) < 600
+            let useVerticalLayout = (NSApp.keyWindow?.frame.width ?? 800) < 700
             
-            VStack(spacing: 8) {
+            VStack(spacing: 12) {
                 Text("Select Date Range")
-                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                    .font(.system(size: 12, weight: .bold, design: .rounded))
                     .foregroundColor(.white.opacity(0.95))
-                    .padding(.top, 8)
+                    .padding(.top, 10)
                 
                 if useVerticalLayout {
-                    VStack(spacing: 8) {
-                        VStack(spacing: 4) {
-                            Text("Start Date")
-                                .font(.system(size: 8, weight: .bold))
-                                .foregroundColor(.secondary)
-                                .textCase(.uppercase)
-                            
-                            DatePicker(
-                                "",
-                                selection: Binding(
-                                    get: { startDate },
-                                    set: { newDate in
-                                        if newDate > endDate {
-                                            endDate = newDate
-                                        }
-                                        startDate = newDate
-                                        onDatesChanged()
+                    VStack(spacing: 12) {
+                        // Vertical presets scroll view
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 6) {
+                                ForEach(PresetRange.allCases) { preset in
+                                    let active = isPresetActive(preset)
+                                    Button(action: { applyPreset(preset) }) {
+                                        Text(preset.rawValue)
+                                            .font(.system(size: 10, weight: active ? .bold : .medium))
+                                            .foregroundColor(active ? tintColor : .white.opacity(0.7))
+                                            .padding(.horizontal, 10)
+                                            .padding(.vertical, 5)
+                                            .background(active ? tintColor.opacity(0.12) : Color.white.opacity(0.04))
+                                            .cornerRadius(6)
                                     }
-                                ),
-                                displayedComponents: .date
-                            )
-                            .datePickerStyle(.graphical)
-                            .labelsHidden()
-                            .frame(width: 175, height: 155)
-                            .scaleEffect(0.9)
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                            .padding(.horizontal, 4)
                         }
                         
-                        Divider()
-                            .background(Color.white.opacity(0.08))
-                            .padding(.horizontal, 10)
-                        
-                        VStack(spacing: 4) {
-                            Text("End Date")
-                                .font(.system(size: 8, weight: .bold))
-                                .foregroundColor(.secondary)
-                                .textCase(.uppercase)
-                            
-                            DatePicker(
-                                "",
-                                selection: Binding(
-                                    get: { endDate },
-                                    set: { newDate in
-                                        if newDate < startDate {
-                                            startDate = newDate
+                        // Text Inputs Row
+                        HStack(spacing: 8) {
+                            TextField("Start Date", text: $startDateText)
+                                .textFieldStyle(.plain)
+                                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 4)
+                                .background(Color.white.opacity(0.05))
+                                .cornerRadius(5)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 5)
+                                        .stroke(startDateText.isEmpty || parseDate(startDateText) != nil ? Color.white.opacity(0.08) : Color.orange.opacity(0.6), lineWidth: 1)
+                                )
+                                .frame(width: 95)
+                                .onChange(of: startDateText) { newValue in
+                                    if let parsed = parseDate(newValue) {
+                                        if parsed > endDate {
+                                            endDate = parsed
                                         }
-                                        endDate = newDate
+                                        startDate = parsed
                                         onDatesChanged()
                                     }
-                                ),
-                                displayedComponents: .date
-                            )
-                            .datePickerStyle(.graphical)
-                            .labelsHidden()
-                            .frame(width: 175, height: 155)
-                            .scaleEffect(0.9)
+                                }
+                            
+                            Text("to")
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundColor(.secondary)
+                            
+                            TextField("End Date", text: $endDateText)
+                                .textFieldStyle(.plain)
+                                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 4)
+                                .background(Color.white.opacity(0.05))
+                                .cornerRadius(5)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 5)
+                                        .stroke(endDateText.isEmpty || parseDate(endDateText) != nil ? Color.white.opacity(0.08) : Color.orange.opacity(0.6), lineWidth: 1)
+                                )
+                                .frame(width: 95)
+                                .onChange(of: endDateText) { newValue in
+                                    if let parsed = parseDate(newValue) {
+                                        if parsed < startDate {
+                                            startDate = parsed
+                                        }
+                                        endDate = parsed
+                                        onDatesChanged()
+                                    }
+                                }
+                        }
+                        
+                        Divider().background(Color.white.opacity(0.08))
+                        
+                        VStack(spacing: 8) {
+                            // Start Date
+                            VStack(spacing: 4) {
+                                Text("Start Date")
+                                    .font(.system(size: 8, weight: .bold))
+                                    .foregroundColor(.secondary)
+                                    .textCase(.uppercase)
+                                
+                                DatePicker(
+                                    "",
+                                    selection: Binding(
+                                        get: { startDate },
+                                        set: { newDate in
+                                            startDate = newDate
+                                            if startDate > endDate {
+                                                endDate = startDate
+                                            }
+                                            onDatesChanged()
+                                        }
+                                    ),
+                                    in: ...endDate,
+                                    displayedComponents: .date
+                                )
+                                .datePickerStyle(.graphical)
+                                .labelsHidden()
+                                .frame(width: 200, height: 160)
+                            }
+                            
+                            Divider().background(Color.white.opacity(0.08))
+                            
+                            // End Date
+                            VStack(spacing: 4) {
+                                Text("End Date")
+                                    .font(.system(size: 8, weight: .bold))
+                                    .foregroundColor(.secondary)
+                                    .textCase(.uppercase)
+                                
+                                DatePicker(
+                                    "",
+                                    selection: Binding(
+                                        get: { endDate },
+                                        set: { newDate in
+                                            endDate = newDate
+                                            if endDate < startDate {
+                                                startDate = endDate
+                                            }
+                                            onDatesChanged()
+                                        }
+                                    ),
+                                    in: startDate...,
+                                    displayedComponents: .date
+                                )
+                                .datePickerStyle(.graphical)
+                                .labelsHidden()
+                                .frame(width: 200, height: 160)
+                            }
                         }
                     }
-                    .padding(.horizontal, 10)
-                    .padding(.bottom, 8)
-                    .frame(width: 200)
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 12)
+                    .frame(width: 230)
                 } else {
-                    HStack(spacing: 12) {
-                        VStack(spacing: 4) {
-                            Text("Start Date")
-                                .font(.system(size: 8, weight: .bold))
+                    HStack(spacing: 0) {
+                        // Presets Column
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("PRESETS")
+                                .font(.system(size: 9, weight: .bold))
                                 .foregroundColor(.secondary)
-                                .textCase(.uppercase)
+                                .padding(.bottom, 4)
+                                .padding(.leading, 4)
                             
-                            DatePicker(
-                                "",
-                                selection: Binding(
-                                    get: { startDate },
-                                    set: { newDate in
-                                        if newDate > endDate {
-                                            endDate = newDate
-                                        }
-                                        startDate = newDate
-                                        onDatesChanged()
-                                    }
-                                ),
-                                displayedComponents: .date
-                            )
-                            .datePickerStyle(.graphical)
-                            .labelsHidden()
-                            .frame(width: 175, height: 155)
-                            .scaleEffect(0.9)
+                            ForEach(PresetRange.allCases) { preset in
+                                let active = isPresetActive(preset)
+                                Button(action: { applyPreset(preset) }) {
+                                    Text(preset.rawValue)
+                                        .font(.system(size: 11, weight: active ? .semibold : .medium))
+                                        .foregroundColor(active ? tintColor : .white.opacity(0.7))
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 5)
+                                        .background(active ? tintColor.opacity(0.12) : Color.clear)
+                                        .cornerRadius(6)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                            Spacer()
                         }
+                        .frame(width: 125)
+                        .padding(.trailing, 8)
                         
-                        Divider()
-                            .background(Color.white.opacity(0.08))
-                            .frame(height: 160)
+                        VerticalDivider()
                         
-                        VStack(spacing: 4) {
-                            Text("End Date")
-                                .font(.system(size: 8, weight: .bold))
-                                .foregroundColor(.secondary)
-                                .textCase(.uppercase)
+                        // Calendars & Inputs Area
+                        VStack(spacing: 12) {
+                            // Text Inputs Row
+                            HStack(spacing: 8) {
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text("START DATE")
+                                        .font(.system(size: 8, weight: .bold))
+                                        .foregroundColor(.secondary)
+                                    
+                                    TextField("YYYY-MM-DD", text: $startDateText)
+                                        .textFieldStyle(.plain)
+                                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 5)
+                                        .background(Color.white.opacity(0.05))
+                                        .cornerRadius(6)
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 6)
+                                                .stroke(startDateText.isEmpty || parseDate(startDateText) != nil ? Color.white.opacity(0.08) : Color.orange.opacity(0.6), lineWidth: 1)
+                                        )
+                                        .frame(width: 105)
+                                        .onChange(of: startDateText) { newValue in
+                                            if let parsed = parseDate(newValue) {
+                                                if parsed > endDate {
+                                                    endDate = parsed
+                                                }
+                                                startDate = parsed
+                                                onDatesChanged()
+                                            }
+                                        }
+                                }
+                                
+                                Text("to")
+                                    .font(.system(size: 11, weight: .bold))
+                                    .foregroundColor(.secondary)
+                                    .padding(.top, 14)
+                                
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text("END DATE")
+                                        .font(.system(size: 8, weight: .bold))
+                                        .foregroundColor(.secondary)
+                                    
+                                    TextField("YYYY-MM-DD", text: $endDateText)
+                                        .textFieldStyle(.plain)
+                                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 5)
+                                        .background(Color.white.opacity(0.05))
+                                        .cornerRadius(6)
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 6)
+                                                .stroke(endDateText.isEmpty || parseDate(endDateText) != nil ? Color.white.opacity(0.08) : Color.orange.opacity(0.6), lineWidth: 1)
+                                        )
+                                        .frame(width: 105)
+                                        .onChange(of: endDateText) { newValue in
+                                            if let parsed = parseDate(newValue) {
+                                                if parsed < startDate {
+                                                    startDate = parsed
+                                                }
+                                                endDate = parsed
+                                                onDatesChanged()
+                                            }
+                                        }
+                                }
+                                
+                                Spacer()
+                            }
+                            .padding(.horizontal, 8)
                             
-                            DatePicker(
-                                "",
-                                selection: Binding(
-                                    get: { endDate },
-                                    set: { newDate in
-                                        if newDate < startDate {
-                                            startDate = newDate
+                            // Calendars Row
+                            HStack(spacing: 12) {
+                                // Start Calendar
+                                VStack(spacing: 6) {
+                                    HStack(spacing: 4) {
+                                        Menu {
+                                            ForEach(startMonthsList, id: \.1) { name, mVal in
+                                                Button(name) {
+                                                    jumpToMonth(mVal, isStart: true)
+                                                }
+                                            }
+                                        } label: {
+                                            HStack(spacing: 3) {
+                                                Text(monthName(for: startMonth))
+                                                Image(systemName: "chevron.down")
+                                                    .font(.system(size: 6))
+                                            }
+                                            .font(.system(size: 10, weight: .bold))
+                                            .foregroundColor(.white.opacity(0.8))
+                                            .padding(.horizontal, 6)
+                                            .padding(.vertical, 3)
+                                            .background(Color.white.opacity(0.06))
+                                            .cornerRadius(5)
                                         }
-                                        endDate = newDate
-                                        onDatesChanged()
+                                        .menuStyle(.button)
+                                        
+                                        Menu {
+                                            ForEach(startYearsList, id: \.self) { yVal in
+                                                Button(String(yVal)) {
+                                                    jumpToYear(yVal, isStart: true)
+                                                }
+                                            }
+                                        } label: {
+                                            HStack(spacing: 3) {
+                                                Text(String(startYear))
+                                                Image(systemName: "chevron.down")
+                                                    .font(.system(size: 6))
+                                            }
+                                            .font(.system(size: 10, weight: .bold))
+                                            .foregroundColor(.white.opacity(0.8))
+                                            .padding(.horizontal, 6)
+                                            .padding(.vertical, 3)
+                                            .background(Color.white.opacity(0.06))
+                                            .cornerRadius(5)
+                                        }
+                                        .menuStyle(.button)
+                                        
+                                        Spacer()
                                     }
-                                ),
-                                displayedComponents: .date
-                            )
-                            .datePickerStyle(.graphical)
-                            .labelsHidden()
-                            .frame(width: 175, height: 155)
-                            .scaleEffect(0.9)
+                                    
+                                    DatePicker(
+                                        "",
+                                        selection: Binding(
+                                            get: { startDate },
+                                            set: { newDate in
+                                                startDate = newDate
+                                                if startDate > endDate {
+                                                    endDate = startDate
+                                                }
+                                                onDatesChanged()
+                                            }
+                                        ),
+                                        in: ...endDate,
+                                        displayedComponents: .date
+                                    )
+                                    .datePickerStyle(.graphical)
+                                    .labelsHidden()
+                                    .frame(width: 240, height: 195)
+                                }
+                                
+                                VerticalDivider()
+                                
+                                // End Calendar
+                                VStack(spacing: 6) {
+                                    HStack(spacing: 4) {
+                                        Menu {
+                                            ForEach(endMonthsList, id: \.1) { name, mVal in
+                                                Button(name) {
+                                                    jumpToMonth(mVal, isStart: false)
+                                                }
+                                            }
+                                        } label: {
+                                            HStack(spacing: 3) {
+                                                Text(monthName(for: endMonth))
+                                                Image(systemName: "chevron.down")
+                                                    .font(.system(size: 6))
+                                            }
+                                            .font(.system(size: 10, weight: .bold))
+                                            .foregroundColor(.white.opacity(0.8))
+                                            .padding(.horizontal, 6)
+                                            .padding(.vertical, 3)
+                                            .background(Color.white.opacity(0.06))
+                                            .cornerRadius(5)
+                                        }
+                                        .menuStyle(.button)
+                                        
+                                        Menu {
+                                            ForEach(endYearsList, id: \.self) { yVal in
+                                                Button(String(yVal)) {
+                                                    jumpToYear(yVal, isStart: false)
+                                                }
+                                            }
+                                        } label: {
+                                            HStack(spacing: 3) {
+                                                Text(String(endYear))
+                                                Image(systemName: "chevron.down")
+                                                    .font(.system(size: 6))
+                                            }
+                                            .font(.system(size: 10, weight: .bold))
+                                            .foregroundColor(.white.opacity(0.8))
+                                            .padding(.horizontal, 6)
+                                            .padding(.vertical, 3)
+                                            .background(Color.white.opacity(0.06))
+                                            .cornerRadius(5)
+                                        }
+                                        .menuStyle(.button)
+                                        
+                                        Spacer()
+                                    }
+                                    
+                                    DatePicker(
+                                        "",
+                                        selection: Binding(
+                                            get: { endDate },
+                                            set: { newDate in
+                                                endDate = newDate
+                                                if endDate < startDate {
+                                                    startDate = endDate
+                                                }
+                                                onDatesChanged()
+                                            }
+                                        ),
+                                        in: startDate...,
+                                        displayedComponents: .date
+                                    )
+                                    .datePickerStyle(.graphical)
+                                    .labelsHidden()
+                                    .frame(width: 240, height: 195)
+                                }
+                            }
                         }
+                        .padding(.leading, 8)
                     }
-                    .padding(.horizontal, 10)
-                    .padding(.bottom, 8)
-                    .frame(width: 380)
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 12)
+                    .frame(width: 670, height: 290)
                 }
             }
             .tint(tintColor)
             .background(Color(NSColor.windowBackgroundColor).opacity(0.95))
+            .onAppear {
+                startDateText = formattedDate(startDate)
+                endDateText = formattedDate(endDate)
+            }
+            .onChange(of: startDate) { newDate in
+                startDateText = formattedDate(newDate)
+            }
+            .onChange(of: endDate) { newDate in
+                endDateText = formattedDate(newDate)
+            }
         }
+    }
+}
+
+// MARK: - Helper Views
+struct VerticalDivider: View {
+    var body: some View {
+        Divider()
+            .background(Color.white.opacity(0.08))
+            .frame(width: 1)
+            .padding(.vertical, 8)
+            .padding(.horizontal, 4)
     }
 }
