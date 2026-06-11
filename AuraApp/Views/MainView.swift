@@ -481,34 +481,28 @@ struct MainView: View {
                                     Spacer()
                                     
                                     if manager.currentFilter == .customRange {
-                                        HStack(spacing: 6) {
-                                            DatePicker("", selection: Binding(
-                                                get: { manager.customStartDate },
-                                                set: { newValue in
-                                                    manager.customStartDate = newValue
-                                                    manager.applyFilter()
-                                                }
-                                            ), displayedComponents: .date)
-                                            .labelsHidden()
-                                            .controlSize(.small)
-                                            .scaleEffect(0.85)
-                                            .frame(width: 90)
+                                        HStack(spacing: 8) {
+                                            NiceDatePickerButton(
+                                                date: Binding(
+                                                    get: { manager.customStartDate },
+                                                    set: { manager.customStartDate = $0 }
+                                                ),
+                                                tintColor: .purple,
+                                                onDateChanged: { manager.applyFilter() }
+                                            )
                                             
                                             Text("to")
                                                 .font(.caption2)
                                                 .foregroundColor(.secondary)
                                             
-                                            DatePicker("", selection: Binding(
-                                                get: { manager.customEndDate },
-                                                set: { newValue in
-                                                    manager.customEndDate = newValue
-                                                    manager.applyFilter()
-                                                }
-                                            ), displayedComponents: .date)
-                                            .labelsHidden()
-                                            .controlSize(.small)
-                                            .scaleEffect(0.85)
-                                            .frame(width: 90)
+                                            NiceDatePickerButton(
+                                                date: Binding(
+                                                    get: { manager.customEndDate },
+                                                    set: { manager.customEndDate = $0 }
+                                                ),
+                                                tintColor: .purple,
+                                                onDateChanged: { manager.applyFilter() }
+                                            )
                                         }
                                         .transition(.move(edge: .trailing).combined(with: .opacity))
                                     }
@@ -623,34 +617,28 @@ struct MainView: View {
                                     Spacer()
                                     
                                     if photosManager.currentFilter == .customRange {
-                                        HStack(spacing: 6) {
-                                            DatePicker("", selection: Binding(
-                                                get: { photosManager.customStartDate },
-                                                set: { newValue in
-                                                    photosManager.customStartDate = newValue
-                                                    photosManager.applyFilter()
-                                                }
-                                            ), displayedComponents: .date)
-                                            .labelsHidden()
-                                            .controlSize(.small)
-                                            .scaleEffect(0.85)
-                                            .frame(width: 90)
+                                        HStack(spacing: 8) {
+                                            NiceDatePickerButton(
+                                                date: Binding(
+                                                    get: { photosManager.customStartDate },
+                                                    set: { photosManager.customStartDate = $0 }
+                                                ),
+                                                tintColor: .emerald,
+                                                onDateChanged: { photosManager.applyFilter() }
+                                            )
                                             
                                             Text("to")
                                                 .font(.caption2)
                                                 .foregroundColor(.secondary)
                                             
-                                            DatePicker("", selection: Binding(
-                                                get: { photosManager.customEndDate },
-                                                set: { newValue in
-                                                    photosManager.customEndDate = newValue
-                                                    photosManager.applyFilter()
-                                                }
-                                            ), displayedComponents: .date)
-                                            .labelsHidden()
-                                            .controlSize(.small)
-                                            .scaleEffect(0.85)
-                                            .frame(width: 90)
+                                            NiceDatePickerButton(
+                                                date: Binding(
+                                                    get: { photosManager.customEndDate },
+                                                    set: { photosManager.customEndDate = $0 }
+                                                ),
+                                                tintColor: .emerald,
+                                                onDateChanged: { photosManager.applyFilter() }
+                                            )
                                         }
                                         .transition(.move(edge: .trailing).combined(with: .opacity))
                                     }
@@ -1039,6 +1027,63 @@ struct PhotosSyncLoadingView: View {
                 pulseScale = 1.1
                 pulseOpacity = 1.0
             }
+        }
+    }
+}
+
+
+// MARK: - Premium Customized Date Picker Trigger Button
+struct NiceDatePickerButton: View {
+    @Binding var date: Date
+    let tintColor: Color
+    let onDateChanged: () -> Void
+    @State private var isPopoverPresented = false
+    
+    private var formattedDate: String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: date)
+    }
+    
+    var body: some View {
+        Button(action: { isPopoverPresented.toggle() }) {
+            HStack(spacing: 5) {
+                Text(formattedDate)
+                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.95))
+                Image(systemName: "calendar")
+                    .font(.system(size: 10))
+                    .foregroundColor(tintColor)
+            }
+            .padding(.horizontal, 9)
+            .padding(.vertical, 5)
+            .background(Color.white.opacity(0.04))
+            .cornerRadius(8)
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(isPopoverPresented ? tintColor.opacity(0.5) : Color.white.opacity(0.06), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .popover(isPresented: $isPopoverPresented, arrowEdge: .bottom) {
+            VStack {
+                DatePicker(
+                    "",
+                    selection: Binding(
+                        get: { date },
+                        set: { newDate in
+                            date = newDate
+                            onDateChanged()
+                        }
+                    ),
+                    displayedComponents: .date
+                )
+                .datePickerStyle(.graphical)
+                .labelsHidden()
+                .padding(12)
+            }
+            .tint(tintColor)
+            .frame(width: 260)
         }
     }
 }

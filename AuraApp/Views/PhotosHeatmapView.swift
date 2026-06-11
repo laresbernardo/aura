@@ -1041,12 +1041,23 @@ struct PhotosHeatmapView: View {
                             isStyleMenuExpanded.toggle()
                         }
                     }) {
-                        Image(systemName: "square.3.stack.3d")
-                            .font(.system(size: 13, weight: .bold))
-                            .frame(width: 32, height: 32)
-                            .background(Color.black.opacity(0.4))
-                            .cornerRadius(8)
-                            .foregroundColor(.white)
+                        ZStack(alignment: .topTrailing) {
+                            Image(systemName: "square.3.stack.3d")
+                                .font(.system(size: 13, weight: .bold))
+                                .frame(width: 32, height: 32)
+                                .background(Color.black.opacity(0.4))
+                                .cornerRadius(8)
+                                .foregroundColor(.white)
+                            
+                            if selectedDevice != nil {
+                                Circle()
+                                    .fill(Color.emerald)
+                                    .frame(width: 6.5, height: 6.5)
+                                    .overlay(Circle().stroke(Color.black.opacity(0.5), lineWidth: 0.5))
+                                    .offset(x: -2, y: 2)
+                                    .shadow(color: .emerald.opacity(0.8), radius: 2)
+                            }
+                        }
                     }
                     .buttonStyle(.plain)
                     .glassCardHoverEffect(cornerRadius: 8)
