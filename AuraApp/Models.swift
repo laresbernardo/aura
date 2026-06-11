@@ -1,5 +1,7 @@
 import Foundation
 import SwiftUI
+import CoreLocation
+import MapKit
 
 // MARK: - Track Model
 struct Track: Codable, Identifiable, Hashable {
@@ -74,6 +76,167 @@ struct Track: Codable, Identifiable, Hashable {
     }
 }
 
+// MARK: - Photo Model
+struct Photo: Codable, Identifiable, Hashable {
+    let id: String
+    let filename: String
+    let dateAdded: Double // Unix Timestamp
+    let latitude: Double?
+    let longitude: Double?
+    var altitude: Double?
+    let width: Int
+    let height: Int
+    let isFavorite: Bool
+    
+    // Geocoded Place Info (Mutable for background geocoding updates)
+    var cityName: String?
+    var countryName: String?
+    
+    // Additional Properties
+    let isLivePhoto: Bool
+    var cameraModel: String?
+    
+    enum CodingKeys: String, CodingKey {
+        case id, filename, dateAdded, latitude, longitude, altitude, width, height, isFavorite, cityName, countryName, isLivePhoto, cameraModel
+    }
+    
+    init(id: String, filename: String, dateAdded: Double, latitude: Double?, longitude: Double?, altitude: Double?, width: Int, height: Int, isFavorite: Bool, cityName: String? = nil, countryName: String? = nil, isLivePhoto: Bool = false, cameraModel: String? = nil) {
+        self.id = id
+        self.filename = filename
+        self.dateAdded = dateAdded
+        self.latitude = latitude
+        self.longitude = longitude
+        self.altitude = altitude
+        self.width = width
+        self.height = height
+        self.isFavorite = isFavorite
+        self.cityName = cityName
+        self.countryName = countryName
+        self.isLivePhoto = isLivePhoto
+        self.cameraModel = cameraModel
+    }
+    
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        filename = try container.decode(String.self, forKey: .filename)
+        dateAdded = try container.decode(Double.self, forKey: .dateAdded)
+        latitude = try container.decodeIfPresent(Double.self, forKey: .latitude)
+        longitude = try container.decodeIfPresent(Double.self, forKey: .longitude)
+        altitude = try container.decodeIfPresent(Double.self, forKey: .altitude)
+        width = try container.decode(Int.self, forKey: .width)
+        height = try container.decode(Int.self, forKey: .height)
+        isFavorite = try container.decode(Bool.self, forKey: .isFavorite)
+        cityName = try container.decodeIfPresent(String.self, forKey: .cityName)
+        countryName = try container.decodeIfPresent(String.self, forKey: .countryName)
+        isLivePhoto = try container.decodeIfPresent(Bool.self, forKey: .isLivePhoto) ?? false
+        cameraModel = try container.decodeIfPresent(String.self, forKey: .cameraModel)
+    }
+    
+    // Custom Computed Metadata
+    var mediaType: String {
+        let ext = URL(fileURLWithPath: filename).pathExtension.lowercased()
+        if ["mov", "mp4", "m4v", "avi", "3gp"].contains(ext) {
+            return "Video"
+        }
+        return "Photo"
+    }
+    
+    var aspectCategory: String {
+        guard width > 0 && height > 0 else { return "Unknown" }
+        let ratio = Double(width) / Double(height)
+        if abs(ratio - 1.0) < 0.05 {
+            return "Square (1:1)"
+        } else if ratio > 2.0 {
+            return "Panoramic"
+        } else if ratio > 1.0 {
+            return "Landscape"
+        } else {
+            return "Portrait"
+        }
+    }
+    
+    var capturedDate: Date {
+        return Date(timeIntervalSince1970: dateAdded)
+    }
+}
+
+// MARK: - Mapped Cluster Model
+struct MappedCluster: Identifiable, Equatable {
+    let id: String // City, Country or formatted Coordinate
+    let cityName: String
+    let countryName: String
+    let coordinate: CLLocationCoordinate2D
+    let photos: [Photo]
+    
+    var count: Int { photos.count }
+    
+    var photoCount: Int {
+        photos.filter { $0.mediaType == "Photo" }.count
+    }
+    
+    var videoCount: Int {
+        photos.filter { $0.mediaType == "Video" }.count
+    }
+    
+    var camerasUsed: [String] {
+        let models = photos.compactMap { $0.cameraModel }
+        return Array(Set(models)).sorted()
+    }
+    
+    var dateRangeFormatted: String {
+        guard !photos.isEmpty else { return "No date" }
+        let dates = photos.map(\.dateAdded)
+        let minDate = Date(timeIntervalSince1970: dates.min() ?? 0)
+        let maxDate = Date(timeIntervalSince1970: dates.max() ?? 0)
+        
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .none
+        
+        // If same day
+        if Calendar.current.isDate(minDate, inSameDayAs: maxDate) {
+            return formatter.string(from: minDate)
+        }
+        
+        return "\(formatter.string(from: minDate)) – \(formatter.string(from: maxDate))"
+    }
+    
+    static func == (lhs: MappedCluster, rhs: MappedCluster) -> Bool {
+        lhs.id == rhs.id && lhs.count == rhs.count
+    }
+}
+
+// MARK: - Map Zoom Level Enum
+enum MapZoomLevel: Int, CaseIterable, Codable {
+    case world
+    case continent
+    case regional
+    case city
+    case neighborhood
+    case street
+    
+    static func level(forDelta delta: Double) -> MapZoomLevel {
+        if delta > 40.0 { return .world }
+        if delta > 8.0 { return .continent }
+        if delta > 2.0 { return .regional }
+        if delta > 0.4 { return .city }
+        if delta > 0.08 { return .neighborhood }
+        return .street
+    }
+    
+    var representativeDelta: Double {
+        switch self {
+        case .world: return 50.0
+        case .continent: return 15.0
+        case .regional: return 5.0
+        case .city: return 1.0
+        case .neighborhood: return 0.2
+        case .street: return 0.01
+        }
+    }
+}
+
 // MARK: - Chart Data Models
 struct GenreStat: Identifiable, Hashable {
     let id = UUID()
@@ -95,8 +258,48 @@ struct TimelineStat: Identifiable, Hashable {
     let count: Int
 }
 
-// MARK: - Advanced Analytics Models
+struct PhotoTimelineStat: Identifiable, Hashable {
+    let id = UUID()
+    let date: Date
+    let monthYearString: String
+    let count: Int
+}
 
+struct CameraStat: Identifiable, Hashable {
+    let id = UUID()
+    let camera: String
+    let count: Int
+}
+
+struct AspectRatioStat: Identifiable, Hashable {
+    let id = UUID()
+    let category: String
+    let count: Int
+    let percentage: Double
+}
+
+struct DestinationStat: Identifiable, Hashable {
+    let id = UUID()
+    let city: String
+    let country: String
+    let count: Int
+}
+
+struct AltitudeBucket: Identifiable, Hashable {
+    let id = UUID()
+    let label: String // e.g., "Sea Level", "Low Elevation", "High Mountains"
+    let count: Int
+}
+
+struct HistogramDataPoint: Identifiable, Hashable {
+    let id = UUID()
+    let intKey: Int
+    let label: String
+    let count: Int
+    let type: String // "Photo" or "Video"
+}
+
+// MARK: - Advanced Analytics Models
 struct ArtistStat: Identifiable, Hashable {
     let id = UUID()
     let artist: String
@@ -165,5 +368,68 @@ enum TimeFilter: Hashable, Identifiable {
         }
     }
 }
+
+// MARK: - Photos Precomputed Analytics Structure
+struct PhotosAnalytics {
+    let totalAssetsCount: Int
+    let favoritesCount: Int
+    let favoritePercentage: Double
+    let videosCount: Int
+    let photosCount: Int
+    let dateRangeFormatted: String
+    let mediaTypeComposition: [GenreStat]
+    let photosTimeline: [TimelineStat]
+    let captureHourCounts: [Int: Int]
+    let hourlyHistogramData: [HistogramDataPoint]
+    let weekdayHistogramData: [HistogramDataPoint]
+    let dayOfMonthHistogramData: [HistogramDataPoint]
+    let monthHistogramData: [HistogramDataPoint]
+    let peakWeekday: String
+    let peakWeekdayPercentage: Double
+    let temporalCaptureStats: [TemporalStat]
+    let cameraDistribution: [CameraStat]
+    let aspectRatios: [AspectRatioStat]
+    let destinations: [DestinationStat]
+    let totalCitiesVisited: Int
+    let totalCountriesVisited: Int
+    let maxAltitudePhoto: Photo?
+    let maxAltitudeFormatted: String
+    let maxAltitudeDetails: String
+    let maxAltitude: Double
+    let northernMostPhoto: Photo?
+    let southernMostPhoto: Photo?
+    let northernMostFormatted: String
+    let northernMostDetails: String
+    let southernMostFormatted: String
+    let southernMostDetails: String
+    let altitudeProfile: [AltitudeBucket]
+    let photographyPersona: PersonaProfile
+    
+    // Precomputed map and sidebar clusters
+    let cityClusters: [MappedCluster]
+    let countryClusters: [MappedCluster]
+    let mapClustersByZoomLevel: [MapZoomLevel: [MappedCluster]]
+}
+
+// MARK: - Music Precomputed Analytics Structure
+struct MusicAnalytics {
+    let totalTracks: Int
+    let totalListeningTimeInSeconds: Double
+    let totalListeningTimeFormatted: String
+    let topArtist: String
+    let topArtistListeningTimeFormatted: String
+    let topGenre: String
+    let genreDistribution: [GenreStat]
+    let forgottenGems: [Track]
+    let loveHateParadox: [Track]
+    let listeningHourCounts: [Int: Int]
+    let temporalStats: [TemporalStat]
+    let tracksAddedTimeline: [TimelineStat]
+    let cumulativeTracksAddedTimeline: [TimelineStat]
+    let eraDistribution: [YearStat]
+    let topArtistsDetailed: [ArtistStat]
+    let listeningPersona: PersonaProfile
+}
+
 
 

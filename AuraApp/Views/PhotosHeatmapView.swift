@@ -116,51 +116,6 @@ class HeatmapOverlayRenderer: MKOverlayRenderer {
     }
 }
 
-// MARK: - Mapped Cluster Model
-struct MappedCluster: Identifiable, Equatable {
-    let id: String // City, Country or formatted Coordinate
-    let cityName: String
-    let countryName: String
-    let coordinate: CLLocationCoordinate2D
-    let photos: [Photo]
-    
-    var count: Int { photos.count }
-    
-    var photoCount: Int {
-        photos.filter { $0.mediaType == "Photo" }.count
-    }
-    
-    var videoCount: Int {
-        photos.filter { $0.mediaType == "Video" }.count
-    }
-    
-    var camerasUsed: [String] {
-        let models = photos.compactMap { $0.cameraModel }
-        return Array(Set(models)).sorted()
-    }
-    
-    var dateRangeFormatted: String {
-        guard !photos.isEmpty else { return "No date" }
-        let dates = photos.map(\.dateAdded)
-        let minDate = Date(timeIntervalSince1970: dates.min() ?? 0)
-        let maxDate = Date(timeIntervalSince1970: dates.max() ?? 0)
-        
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .none
-        
-        // If same day
-        if Calendar.current.isDate(minDate, inSameDayAs: maxDate) {
-            return formatter.string(from: minDate)
-        }
-        
-        return "\(formatter.string(from: minDate)) – \(formatter.string(from: maxDate))"
-    }
-    
-    static func == (lhs: MappedCluster, rhs: MappedCluster) -> Bool {
-        lhs.id == rhs.id && lhs.count == rhs.count
-    }
-}
 
 // MARK: - Heatmap Circle Subclass for Custom Rendering Data
 class HeatmapCircle: MKCircle {
@@ -1108,112 +1063,13 @@ struct PhotosHeatmapView: View {
     
     // Dynamic granularity clusters computed on the map visible span delta
     private var mapClusters: [MappedCluster] {
-        let delta = currentRegion.span.latitudeDelta
-        var dict: [String: [Photo]] = [:]
-        
-        for photo in manager.photos {
-            guard let lat = photo.latitude, let lon = photo.longitude else { continue }
-            
-            let key: String
-            if delta > 40.0 {
-                // World Zoom: Group by Country
-                key = photo.countryName ?? "Unknown Country"
-            } else if delta > 8.0 {
-                // Continent/Country Zoom: Group by City/Country
-                if let city = photo.cityName, let country = photo.countryName {
-                    key = "\(city), \(country)"
-                } else {
-                    key = String(format: "%.1f,%.1f", lat, lon)
-                }
-            } else if delta > 2.0 {
-                // Regional/State Zoom: Group by 1 decimal place (~11km)
-                key = String(format: "%.1f,%.1f", lat, lon)
-            } else if delta > 0.4 {
-                // City Zoom: Group by 2 decimal places (~1.1km)
-                key = String(format: "%.2f,%.2f", lat, lon)
-            } else if delta > 0.08 {
-                // Neighborhood Zoom: Group by 3 decimal places (~110m)
-                key = String(format: "%.3f,%.3f", lat, lon)
-            } else {
-                // Street/Block Zoom: Group by 4 decimal places (~11m)
-                key = String(format: "%.4f,%.4f", lat, lon)
-            }
-            
-            dict[key, default: []].append(photo)
-        }
-        
-        return dict.compactMap { key, clusterPhotos -> MappedCluster? in
-            guard let first = clusterPhotos.first,
-                  first.latitude != nil,
-                  first.longitude != nil else { return nil }
-            
-            // Average coordinate position
-            let avgLat = clusterPhotos.map { $0.latitude ?? 0.0 }.reduce(0.0, +) / Double(clusterPhotos.count)
-            let avgLon = clusterPhotos.map { $0.longitude ?? 0.0 }.reduce(0.0, +) / Double(clusterPhotos.count)
-            
-            let baseCityName = first.cityName ?? "Unknown Region"
-            let countryName = first.countryName ?? "Unknown Country"
-            
-            return MappedCluster(
-                id: key,
-                cityName: baseCityName,
-                countryName: countryName,
-                coordinate: CLLocationCoordinate2D(latitude: avgLat, longitude: avgLon),
-                photos: clusterPhotos
-            )
-        }.sorted(by: { $0.count > $1.count })
+        let zoom = MapZoomLevel.level(forDelta: currentRegion.span.latitudeDelta)
+        return manager.precomputedMapClusters[zoom] ?? []
     }
     
     // Clusters computed on the current filtered photos array (constant city/country-level for sidebar)
     private var clusters: [MappedCluster] {
-        var dict: [String: [Photo]] = [:]
-        
-        for photo in manager.photos {
-            guard let lat = photo.latitude, let lon = photo.longitude else { continue }
-            
-            let key: String
-            if hotspotGrouping == .city {
-                if let city = photo.cityName, let country = photo.countryName {
-                    key = "\(city), \(country)"
-                } else {
-                    key = String(format: "%.1f,%.1f", lat, lon)
-                }
-            } else {
-                key = photo.countryName ?? "Unknown Country"
-            }
-            
-            dict[key, default: []].append(photo)
-        }
-        
-        return dict.compactMap { key, clusterPhotos -> MappedCluster? in
-            guard let first = clusterPhotos.first,
-                  first.latitude != nil,
-                  first.longitude != nil else { return nil }
-            
-            // Average coordinate position
-            let avgLat = clusterPhotos.map { $0.latitude ?? 0.0 }.reduce(0.0, +) / Double(clusterPhotos.count)
-            let avgLon = clusterPhotos.map { $0.longitude ?? 0.0 }.reduce(0.0, +) / Double(clusterPhotos.count)
-            
-            let cityName: String
-            let countryName: String
-            
-            if hotspotGrouping == .city {
-                cityName = first.cityName ?? "Unknown Region"
-                countryName = first.countryName ?? "Unknown Country"
-            } else {
-                cityName = key
-                let cityCount = Set(clusterPhotos.compactMap(\.cityName)).count
-                countryName = cityCount == 1 ? "1 city visited" : "\(cityCount) cities visited"
-            }
-            
-            return MappedCluster(
-                id: key,
-                cityName: cityName,
-                countryName: countryName,
-                coordinate: CLLocationCoordinate2D(latitude: avgLat, longitude: avgLon),
-                photos: clusterPhotos
-            )
-        }.sorted(by: { $0.count > $1.count })
+        hotspotGrouping == .city ? manager.precomputedCityClusters : manager.precomputedCountryClusters
     }
     
     private var filteredClusters: [MappedCluster] {

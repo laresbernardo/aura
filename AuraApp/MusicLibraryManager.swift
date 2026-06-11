@@ -14,7 +14,11 @@ class MusicLibraryManager: ObservableObject {
         var id: String { rawValue }
     }
     
-    @Published var tracks: [Track] = []
+    @Published var tracks: [Track] = [] {
+        didSet {
+            recalculateMusicAnalytics()
+        }
+    }
     @Published var allTracks: [Track] = []
     @Published var isLoading: Bool = false
     @Published var syncError: String? = nil
@@ -25,6 +29,9 @@ class MusicLibraryManager: ObservableObject {
     @Published var currentFilter: TimeFilter = .specificYear(Calendar.current.component(.year, from: Date()))
     @Published var customStartDate: Date = Calendar.current.date(byAdding: .month, value: -1, to: Date()) ?? Date()
     @Published var customEndDate: Date = Date()
+    
+    @Published var precomputedAnalytics: MusicAnalytics? = nil
+    private var recalculateTask: Task<Void, Never>? = nil
     
     var currentYearString: String {
         "\(Calendar.current.component(.year, from: Date()))"
@@ -813,98 +820,118 @@ class MusicLibraryManager: ObservableObject {
         self.applyFilter()
     }
     
-    // MARK: - Analytics Computations (For Swift Charts and UI KPIs)
+    // MARK: - Precomputed Analytics Getters
     
-    var totalTracks: Int {
-        return tracks.count
+    var totalTracks: Int { precomputedAnalytics?.totalTracks ?? tracks.count }
+    var totalListeningTimeInSeconds: Double { precomputedAnalytics?.totalListeningTimeInSeconds ?? 0.0 }
+    var totalListeningTimeFormatted: String { precomputedAnalytics?.totalListeningTimeFormatted ?? "0m" }
+    var topArtist: String { precomputedAnalytics?.topArtist ?? "No Music" }
+    var topArtistListeningTimeFormatted: String { precomputedAnalytics?.topArtistListeningTimeFormatted ?? "0m" }
+    var topGenre: String { precomputedAnalytics?.topGenre ?? "No Music" }
+    var genreDistribution: [GenreStat] { precomputedAnalytics?.genreDistribution ?? [] }
+    var forgottenGems: [Track] { precomputedAnalytics?.forgottenGems ?? [] }
+    var loveHateParadox: [Track] { precomputedAnalytics?.loveHateParadox ?? [] }
+    var listeningHourCounts: [Int: Int] { precomputedAnalytics?.listeningHourCounts ?? [:] }
+    var temporalStats: [TemporalStat] { precomputedAnalytics?.temporalStats ?? [] }
+    var tracksAddedTimeline: [TimelineStat] { precomputedAnalytics?.tracksAddedTimeline ?? [] }
+    var cumulativeTracksAddedTimeline: [TimelineStat] { precomputedAnalytics?.cumulativeTracksAddedTimeline ?? [] }
+    var eraDistribution: [YearStat] { precomputedAnalytics?.eraDistribution ?? [] }
+    var topArtistsDetailed: [ArtistStat] { precomputedAnalytics?.topArtistsDetailed ?? [] }
+    var listeningPersona: PersonaProfile {
+        precomputedAnalytics?.listeningPersona ?? PersonaProfile(
+            name: "The Sonic Explorer",
+            subtitle: "Quiet Beginnings",
+            description: "Your library profile will evolve as you sync your music tracks and establish your listening aura.",
+            nostalgiaIndex: 0, varietyScore: 0, focusScore: 0, loyaltyScore: 0,
+            gradientColors: [.purple, .indigo]
+        )
     }
     
-    // Estimates total listening time based on play count
-    // Assumes an average track length of 3.5 minutes (210 seconds)
-    var totalListeningTimeInSeconds: Double {
-        let averageTrackLength: Double = 210 // 3.5 minutes
-        return tracks.reduce(0.0) { $0 + (Double($1.playCount) * averageTrackLength) }
+    var appVersionString: String {
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.0"
+        return "v\(version)"
     }
     
-    var totalListeningTimeFormatted: String {
+    func recalculateMusicAnalytics(synchronous: Bool = false) {
+        let currentTracks = self.tracks
+        if synchronous || currentTracks.count < 2000 {
+            recalculateTask?.cancel()
+            let stats = Self.computeAnalytics(for: currentTracks)
+            self.precomputedAnalytics = stats
+        } else {
+            recalculateTask?.cancel()
+            recalculateTask = Task.detached(priority: .userInitiated) {
+                let stats = Self.computeAnalytics(for: currentTracks)
+                if Task.isCancelled { return }
+                await MainActor.run {
+                    self.precomputedAnalytics = stats
+                }
+            }
+        }
+    }
+    
+    nonisolated static func computeAnalytics(for tracks: [Track]) -> MusicAnalytics {
+        let totalTracks = tracks.count
+        
+        let averageTrackLength: Double = 210
+        let totalListeningTimeInSeconds = tracks.reduce(0.0) { $0 + (Double($1.playCount) * averageTrackLength) }
+        
         let seconds = totalListeningTimeInSeconds
         let days = Int(seconds / 86400)
         let hours = Int((seconds.truncatingRemainder(dividingBy: 86400)) / 3600)
         let minutes = Int((seconds.truncatingRemainder(dividingBy: 3600)) / 60)
         
+        let totalListeningTimeFormatted: String
         if days > 0 {
-            return "\(days)d \(hours)h \(minutes)m"
+            totalListeningTimeFormatted = "\(days)d \(hours)h \(minutes)m"
         } else if hours > 0 {
-            return "\(hours)h \(minutes)m"
+            totalListeningTimeFormatted = "\(hours)h \(minutes)m"
         } else {
-            return "\(minutes)m"
+            totalListeningTimeFormatted = "\(minutes)m"
         }
-    }
-    
-    var topArtist: String {
-        guard !tracks.isEmpty else { return "No Music" }
-        // Sum playcount per artist
+        
         var artistPlays: [String: Int] = [:]
         for track in tracks {
             artistPlays[track.artist, default: 0] += track.playCount
         }
-        return artistPlays.max(by: { $0.value < $1.value })?.key ?? "Unknown"
-    }
-    
-    var topArtistListeningTimeFormatted: String {
-        guard !tracks.isEmpty else { return "0m" }
-        var artistPlays: [String: Int] = [:]
-        for track in tracks {
-            artistPlays[track.artist, default: 0] += track.playCount
-        }
-        guard let top = artistPlays.max(by: { $0.value < $1.value }) else { return "0m" }
+        let topArtist = artistPlays.max(by: { $0.value < $1.value })?.key ?? "No Music"
         
-        let seconds = Double(top.value) * 210.0 // 3.5 minutes average track length
-        let days = Int(seconds / 86400)
-        let hours = Int((seconds.truncatingRemainder(dividingBy: 86400)) / 3600)
-        let minutes = Int((seconds.truncatingRemainder(dividingBy: 3600)) / 60)
-        
-        if days > 0 {
-            return "\(days)d \(hours)h \(minutes)m"
-        } else if hours > 0 {
-            return "\(hours)h \(minutes)m"
+        let topArtistListeningTimeFormatted: String
+        if let top = artistPlays.max(by: { $0.value < $1.value }) {
+            let topSeconds = Double(top.value) * 210.0
+            let tDays = Int(topSeconds / 86400)
+            let tHours = Int((topSeconds.truncatingRemainder(dividingBy: 86400)) / 3600)
+            let tMinutes = Int((topSeconds.truncatingRemainder(dividingBy: 3600)) / 60)
+            if tDays > 0 {
+                topArtistListeningTimeFormatted = "\(tDays)d \(tHours)h \(tMinutes)m"
+            } else if tHours > 0 {
+                topArtistListeningTimeFormatted = "\(tHours)h \(tMinutes)m"
+            } else {
+                topArtistListeningTimeFormatted = "\(tMinutes)m"
+            }
         } else {
-            return "\(minutes)m"
+            topArtistListeningTimeFormatted = "0m"
         }
-    }
-    
-    var topGenre: String {
-        guard !tracks.isEmpty else { return "No Music" }
+        
         var genreCounts: [String: Int] = [:]
         for track in tracks {
             genreCounts[track.genre, default: 0] += 1
         }
-        return genreCounts.max(by: { $0.value < $1.value })?.key ?? "Unknown"
-    }
-    
-    // Genre Distribution
-    var genreDistribution: [GenreStat] {
-        let total = Double(tracks.count)
-        guard total > 0 else { return [] }
+        let topGenre = genreCounts.max(by: { $0.value < $1.value })?.key ?? "No Music"
         
-        var counts: [String: Int] = [:]
-        for track in tracks {
-            counts[track.genre, default: 0] += 1
+        let totalDouble = Double(tracks.count)
+        let genreDistribution: [GenreStat]
+        if totalDouble > 0 {
+            genreDistribution = genreCounts.map { genre, count in
+                GenreStat(genre: genre, count: count, percentage: (Double(count) / totalDouble) * 100.0)
+            }.sorted(by: { $0.count > $1.count })
+        } else {
+            genreDistribution = []
         }
         
-        return counts.map { genre, count in
-            GenreStat(genre: genre, count: count, percentage: (Double(count) / total) * 100)
-        }.sorted(by: { $0.count > $1.count })
-    }
-    
-    // Forgotten Gems (Rated 4-5 stars, not played in over 2 years)
-    var forgottenGems: [Track] {
         let twoYearsAgo = Date().addingTimeInterval(-2 * 365 * 86400)
-        
-        // Try filtering by explicit rating first (>= 4 stars / 80 rating)
         var candidates = tracks.filter { track in
             guard track.rating >= 80 else { return false }
-            
             if let lastPlayed = track.lastPlayedDate {
                 return lastPlayed < twoYearsAgo
             } else if let added = track.addedDate {
@@ -913,15 +940,12 @@ class MusicLibraryManager: ObservableObject {
             return false
         }
         
-        // Fallback: If no rated gems, use high play counts (plays >= 12 or plays in top 15%)
         if candidates.count < 3 {
             let plays = tracks.map(\.playCount)
             let maxPlay = plays.max() ?? 0
             let playThreshold = max(10, maxPlay / 5)
-            
             candidates = tracks.filter { track in
                 guard track.playCount >= playThreshold else { return false }
-                
                 if let lastPlayed = track.lastPlayedDate {
                     return lastPlayed < twoYearsAgo
                 } else if let added = track.addedDate {
@@ -930,40 +954,27 @@ class MusicLibraryManager: ObservableObject {
                 return false
             }
         }
+        let forgottenGems = candidates.sorted(by: { ($0.lastPlayedDate ?? Date.distantPast) < ($1.lastPlayedDate ?? Date.distantPast) })
         
-        return candidates.sorted(by: { ($0.lastPlayedDate ?? Date.distantPast) < ($1.lastPlayedDate ?? Date.distantPast) })
-    }
-    
-    // Love-Hate Paradox (Highly rated/played tracks that you skip frequently - nostalgic burnout)
-    var loveHateParadox: [Track] {
-        return tracks.filter { track in
+        let loveHateParadox = tracks.filter { track in
             let isHighlyInteracted = track.rating >= 80 || track.playCount >= 20
             let isSkippedFrequently = track.skipCount >= 4
             return isHighlyInteracted && isSkippedFrequently
         }.sorted(by: { $0.skipCount > $1.skipCount })
-    }
-    
-    // Count tracks played by hour of day (0-23)
-    var listeningHourCounts: [Int: Int] {
-        var counts: [Int: Int] = [:]
+        
+        var listeningHourCounts: [Int: Int] = [:]
         let cal = Calendar.current
         for track in tracks {
             guard let lastPlayed = track.lastPlayedDate else { continue }
             let hour = cal.component(.hour, from: lastPlayed)
-            counts[hour, default: 0] += 1
+            listeningHourCounts[hour, default: 0] += 1
         }
-        return counts
-    }
-    
-    // Categorize listening periods
-    var temporalStats: [TemporalStat] {
-        let counts = listeningHourCounts
+        
         var morning = 0
         var afternoon = 0
         var sunset = 0
         var midnight = 0
-        
-        for (hour, count) in counts {
+        for (hour, count) in listeningHourCounts {
             if hour >= 6 && hour < 12 {
                 morning += count
             } else if hour >= 12 && hour < 18 {
@@ -975,7 +986,7 @@ class MusicLibraryManager: ObservableObject {
             }
         }
         
-        return [
+        let temporalStats = [
             TemporalStat(
                 period: "Morning Birds",
                 count: morning,
@@ -1005,23 +1016,15 @@ class MusicLibraryManager: ObservableObject {
                 gradientColors: [.indigo, .purple]
             )
         ]
-    }
-    
-    
-    // Timeline of Tracks Added (by month/year)
-    var tracksAddedTimeline: [TimelineStat] {
-        let cal = Calendar.current
-        var groupings: [String: (date: Date, count: Int)] = [:]
         
+        var groupings: [String: (date: Date, count: Int)] = [:]
         let formatter = DateFormatter()
         formatter.dateFormat = "MMM yyyy"
         
         for track in tracks {
             guard let addedDate = track.addedDate else { continue }
-            // Find the start of the month to group dates cleanly
             let components = cal.dateComponents([.year, .month], from: addedDate)
             guard let monthStart = cal.date(from: components) else { continue }
-            
             let key = formatter.string(from: monthStart)
             if let existing = groupings[key] {
                 groupings[key] = (monthStart, existing.count + 1)
@@ -1030,29 +1033,20 @@ class MusicLibraryManager: ObservableObject {
             }
         }
         
-        return groupings.values.map { val in
+        let tracksAddedTimeline = groupings.values.map { val in
             TimelineStat(date: val.date, monthYearString: formatter.string(from: val.date), count: val.count)
         }.sorted(by: { $0.date < $1.date })
-    }
-    
-    // Cumulative Library Growth Timeline
-    var cumulativeTracksAddedTimeline: [TimelineStat] {
-        let monthly = tracksAddedTimeline
+        
         var runningTotal = 0
-        return monthly.map { stat in
+        let cumulativeTracksAddedTimeline = tracksAddedTimeline.map { stat in
             runningTotal += stat.count
             return TimelineStat(date: stat.date, monthYearString: stat.monthYearString, count: runningTotal)
         }
-    }
-    
-    // Era Distribution (Breakdown by Release Year)
-    var eraDistribution: [YearStat] {
-        var groups: [String: Int] = [:]
         
+        var groups: [String: Int] = [:]
         for track in tracks {
             let year = track.year
             guard year > 0 else { continue }
-            
             let era: String
             if year < 1970 {
                 era = "Pre-70s"
@@ -1069,47 +1063,101 @@ class MusicLibraryManager: ObservableObject {
             } else {
                 era = "20s"
             }
-            
             groups[era, default: 0] += 1
         }
-        
         let orderedEras = ["Pre-70s", "70s", "80s", "90s", "00s", "10s", "20s"]
-        return orderedEras.compactMap { era in
+        let eraDistribution = orderedEras.compactMap { era -> YearStat? in
             guard let count = groups[era] else { return nil }
             return YearStat(era: era, count: count)
         }
-    }
-    
-    // MARK: - Advanced App & Analytics Computed Stats
-    
-    var appVersionString: String {
-        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.0"
-        return "v\(version)"
-    }
-    
-    var topArtistsDetailed: [ArtistStat] {
+        
         var artistTracks: [String: [Track]] = [:]
         for track in tracks {
             artistTracks[track.artist, default: []].append(track)
         }
-        
-        return artistTracks.map { artist, tracks in
+        let topArtistsDetailed = artistTracks.map { artist, tracks -> ArtistStat in
             let trackCount = tracks.count
             let totalPlays = tracks.reduce(0) { $0 + $1.playCount }
             let totalSkips = tracks.reduce(0) { $0 + $1.skipCount }
             let averagePlays = trackCount > 0 ? Double(totalPlays) / Double(trackCount) : 0.0
-            
             let totalActivity = totalPlays + totalSkips
             let engagement = totalActivity > 0 ? (Double(totalPlays) / Double(totalActivity)) * 100.0 : 0.0
-            
             return ArtistStat(artist: artist, trackCount: trackCount, totalPlays: totalPlays, averagePlaysPerTrack: averagePlays, totalSkips: totalSkips, engagementScore: engagement)
         }.sorted(by: { $0.totalPlays > $1.totalPlays })
-    }
-    
-    var listeningPersona: PersonaProfile {
-        let total = Double(tracks.count)
-        guard total > 0 else {
-            return PersonaProfile(
+        
+        // Persona Profile
+        let listeningPersona: PersonaProfile
+        if totalDouble > 0 {
+            let pre2000Count = Double(tracks.filter { $0.year > 0 && $0.year < 2000 }.count)
+            let nostalgia = (pre2000Count / totalDouble) * 100.0
+            
+            let genres = Set(tracks.map { $0.genre })
+            let variety = min(100.0, (Double(genres.count) / totalDouble) * 300.0)
+            
+            let totalPlays = Double(tracks.reduce(0) { $0 + $1.playCount })
+            var artistPlays: [String: Int] = [:]
+            for track in tracks {
+                artistPlays[track.artist, default: 0] += track.playCount
+            }
+            let topArtistPlayCount = Double(artistPlays.values.max() ?? 0)
+            let focus = totalPlays > 0 ? (topArtistPlayCount / totalPlays) * 100.0 : 0.0
+            
+            let totalSkips = Double(tracks.reduce(0) { $0 + $1.skipCount })
+            let totalEvents = totalPlays + totalSkips
+            let loyalty = totalEvents > 0 ? (totalPlays / totalEvents) * 100.0 : 100.0
+            let skipRatio = totalEvents > 0 ? (totalSkips / totalEvents) * 100.0 : 0.0
+            
+            var genreCounts: [String: Int] = [:]
+            for track in tracks {
+                genreCounts[track.genre, default: 0] += 1
+            }
+            let topGenreCount = Double(genreCounts.values.max() ?? 0)
+            let dominantGenrePercent = (topGenreCount / totalDouble) * 100.0
+            
+            let name: String
+            let subtitle: String
+            let description: String
+            let gradientColors: [Color]
+            
+            if dominantGenrePercent >= 50.0 {
+                name = "The Genre Specialist"
+                subtitle = "Hyper-focused Purist"
+                description = "You know exactly what you love. A single musical genre dominates your collection, showing an unyielding dedication to a specific cultural soundscape."
+                gradientColors = [.pink, .red]
+            } else if nostalgia >= 35.0 {
+                name = "The Timeless Archivist"
+                subtitle = "Historical Connoisseur"
+                description = "You find beauty in historical eras. A heavy proportion of your library belongs to the classic decades of the past, celebrating musical nostalgia and vintage vibes."
+                gradientColors = [.orange, .yellow]
+            } else if focus >= 15.0 {
+                name = "The Loyal Fanatic"
+                subtitle = "Artist Devotee"
+                description = "Your heart belongs to a select few. You dedicate an exceptionally high percentage of your cumulative listening time to your top artist, showing immense loyalty."
+                gradientColors = [.purple, .pink]
+            } else if skipRatio >= 18.0 {
+                name = "The Critical Curator"
+                subtitle = "Selective Perfectionist"
+                description = "You have an extremely refined ear and zero tolerance for filler tracks. You actively curate your experience, skipping songs frequently to hear only absolute perfection."
+                gradientColors = [.cyan, .blue]
+            } else if variety >= 12.0 {
+                name = "The Eclectic Voyager"
+                subtitle = "Boundary-crossing Explorer"
+                description = "Your ears crave endless novelty. You collect a vast range of genres and artists, treating your music library as an open playground with no boundaries."
+                gradientColors = [.emerald, .teal]
+            } else {
+                name = "The Harmonious Listener"
+                subtitle = "Balanced Enthusiast"
+                description = "You have a perfectly balanced auditory profile. Your music distribution is smooth and versatile, seamlessly blending plays, skips, decades, and genres."
+                gradientColors = [.indigo, .purple]
+            }
+            
+            listeningPersona = PersonaProfile(
+                name: name, subtitle: subtitle, description: description,
+                nostalgiaIndex: nostalgia, varietyScore: variety, focusScore: focus, loyaltyScore: loyalty,
+                gradientColors: gradientColors
+            )
+        } else {
+            listeningPersona = PersonaProfile(
                 name: "The Sonic Explorer",
                 subtitle: "Quiet Beginnings",
                 description: "Your library profile will evolve as you sync your music tracks and establish your listening aura.",
@@ -1118,79 +1166,23 @@ class MusicLibraryManager: ObservableObject {
             )
         }
         
-        // 1. Nostalgia Index (Tracks pre-2000)
-        let pre2000Count = Double(tracks.filter { $0.year > 0 && $0.year < 2000 }.count)
-        let nostalgia = (pre2000Count / total) * 100.0
-        
-        // 2. Variety Score (Distinct genres vs total count)
-        let genres = Set(tracks.map { $0.genre })
-        let variety = min(100.0, (Double(genres.count) / total) * 300.0) // normalized factor
-        
-        // 3. Focus Score (Top Artist plays / total plays)
-        let totalPlays = Double(tracks.reduce(0) { $0 + $1.playCount })
-        var artistPlays: [String: Int] = [:]
-        for track in tracks {
-            artistPlays[track.artist, default: 0] += track.playCount
-        }
-        let topArtistPlayCount = Double(artistPlays.values.max() ?? 0)
-        let focus = totalPlays > 0 ? (topArtistPlayCount / totalPlays) * 100.0 : 0.0
-        
-        // 4. Loyalty Score (Plays vs Skips)
-        let totalSkips = Double(tracks.reduce(0) { $0 + $1.skipCount })
-        let totalEvents = totalPlays + totalSkips
-        let loyalty = totalEvents > 0 ? (totalPlays / totalEvents) * 100.0 : 100.0
-        let skipRatio = totalEvents > 0 ? (totalSkips / totalEvents) * 100.0 : 0.0
-        
-        // 5. Single dominant genre percent
-        var genreCounts: [String: Int] = [:]
-        for track in tracks {
-            genreCounts[track.genre, default: 0] += 1
-        }
-        let topGenreCount = Double(genreCounts.values.max() ?? 0)
-        let dominantGenrePercent = (topGenreCount / total) * 100.0
-        
-        // Categorize Persona
-        let name: String
-        let subtitle: String
-        let description: String
-        let gradientColors: [Color]
-        
-        if dominantGenrePercent >= 50.0 {
-            name = "The Genre Specialist"
-            subtitle = "Hyper-focused Purist"
-            description = "You know exactly what you love. A single musical genre dominates your collection, showing an unyielding dedication to a specific cultural soundscape."
-            gradientColors = [.pink, .red]
-        } else if nostalgia >= 35.0 {
-            name = "The Timeless Archivist"
-            subtitle = "Historical Connoisseur"
-            description = "You find beauty in historical eras. A heavy proportion of your library belongs to the classic decades of the past, celebrating musical nostalgia and vintage vibes."
-            gradientColors = [.orange, .yellow]
-        } else if focus >= 15.0 {
-            name = "The Loyal Fanatic"
-            subtitle = "Artist Devotee"
-            description = "Your heart belongs to a select few. You dedicate an exceptionally high percentage of your cumulative listening time to your top artist, showing immense loyalty."
-            gradientColors = [.purple, .pink]
-        } else if skipRatio >= 18.0 {
-            name = "The Critical Curator"
-            subtitle = "Selective Perfectionist"
-            description = "You have an extremely refined ear and zero tolerance for filler tracks. You actively curate your experience, skipping songs frequently to hear only absolute perfection."
-            gradientColors = [.cyan, .blue]
-        } else if variety >= 12.0 {
-            name = "The Eclectic Voyager"
-            subtitle = "Boundary-crossing Explorer"
-            description = "Your ears crave endless novelty. You collect a vast range of genres and artists, treating your music library as an open playground with no boundaries."
-            gradientColors = [.emerald, .teal]
-        } else {
-            name = "The Harmonious Listener"
-            subtitle = "Balanced Enthusiast"
-            description = "You have a perfectly balanced auditory profile. Your music distribution is smooth and versatile, seamlessly blending plays, skips, decades, and genres."
-            gradientColors = [.indigo, .purple]
-        }
-        
-        return PersonaProfile(
-            name: name, subtitle: subtitle, description: description,
-            nostalgiaIndex: nostalgia, varietyScore: variety, focusScore: focus, loyaltyScore: loyalty,
-            gradientColors: gradientColors
+        return MusicAnalytics(
+            totalTracks: totalTracks,
+            totalListeningTimeInSeconds: totalListeningTimeInSeconds,
+            totalListeningTimeFormatted: totalListeningTimeFormatted,
+            topArtist: topArtist,
+            topArtistListeningTimeFormatted: topArtistListeningTimeFormatted,
+            topGenre: topGenre,
+            genreDistribution: genreDistribution,
+            forgottenGems: forgottenGems,
+            loveHateParadox: loveHateParadox,
+            listeningHourCounts: listeningHourCounts,
+            temporalStats: temporalStats,
+            tracksAddedTimeline: tracksAddedTimeline,
+            cumulativeTracksAddedTimeline: cumulativeTracksAddedTimeline,
+            eraDistribution: eraDistribution,
+            topArtistsDetailed: topArtistsDetailed,
+            listeningPersona: listeningPersona
         )
     }
 }

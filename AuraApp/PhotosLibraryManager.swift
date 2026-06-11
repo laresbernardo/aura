@@ -6,133 +6,6 @@ import CoreLocation
 import MapKit
 import Photos
 
-// MARK: - Photo Model
-struct Photo: Codable, Identifiable, Hashable {
-    let id: String
-    let filename: String
-    let dateAdded: Double // Unix Timestamp
-    let latitude: Double?
-    let longitude: Double?
-    var altitude: Double?
-    let width: Int
-    let height: Int
-    let isFavorite: Bool
-    
-    // Geocoded Place Info (Mutable for background geocoding updates)
-    var cityName: String?
-    var countryName: String?
-    
-    // Additional Properties
-    let isLivePhoto: Bool
-    var cameraModel: String?
-    
-    enum CodingKeys: String, CodingKey {
-        case id, filename, dateAdded, latitude, longitude, altitude, width, height, isFavorite, cityName, countryName, isLivePhoto, cameraModel
-    }
-    
-    init(id: String, filename: String, dateAdded: Double, latitude: Double?, longitude: Double?, altitude: Double?, width: Int, height: Int, isFavorite: Bool, cityName: String? = nil, countryName: String? = nil, isLivePhoto: Bool = false, cameraModel: String? = nil) {
-        self.id = id
-        self.filename = filename
-        self.dateAdded = dateAdded
-        self.latitude = latitude
-        self.longitude = longitude
-        self.altitude = altitude
-        self.width = width
-        self.height = height
-        self.isFavorite = isFavorite
-        self.cityName = cityName
-        self.countryName = countryName
-        self.isLivePhoto = isLivePhoto
-        self.cameraModel = cameraModel
-    }
-    
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        id = try container.decode(String.self, forKey: .id)
-        filename = try container.decode(String.self, forKey: .filename)
-        dateAdded = try container.decode(Double.self, forKey: .dateAdded)
-        latitude = try container.decodeIfPresent(Double.self, forKey: .latitude)
-        longitude = try container.decodeIfPresent(Double.self, forKey: .longitude)
-        altitude = try container.decodeIfPresent(Double.self, forKey: .altitude)
-        width = try container.decode(Int.self, forKey: .width)
-        height = try container.decode(Int.self, forKey: .height)
-        isFavorite = try container.decode(Bool.self, forKey: .isFavorite)
-        cityName = try container.decodeIfPresent(String.self, forKey: .cityName)
-        countryName = try container.decodeIfPresent(String.self, forKey: .countryName)
-        isLivePhoto = try container.decodeIfPresent(Bool.self, forKey: .isLivePhoto) ?? false
-        cameraModel = try container.decodeIfPresent(String.self, forKey: .cameraModel)
-    }
-    
-    // Custom Computed Metadata
-    var mediaType: String {
-        let ext = URL(fileURLWithPath: filename).pathExtension.lowercased()
-        if ["mov", "mp4", "m4v", "avi", "3gp"].contains(ext) {
-            return "Video"
-        }
-        return "Photo"
-    }
-    
-    var aspectCategory: String {
-        guard width > 0 && height > 0 else { return "Unknown" }
-        let ratio = Double(width) / Double(height)
-        if abs(ratio - 1.0) < 0.05 {
-            return "Square (1:1)"
-        } else if ratio > 2.0 {
-            return "Panoramic"
-        } else if ratio > 1.0 {
-            return "Landscape"
-        } else {
-            return "Portrait"
-        }
-    }
-    
-    var capturedDate: Date {
-        return Date(timeIntervalSince1970: dateAdded)
-    }
-}
-
-// MARK: - Chart & Analytics Models for Photos
-struct PhotoTimelineStat: Identifiable, Hashable {
-    let id = UUID()
-    let date: Date
-    let monthYearString: String
-    let count: Int
-}
-
-struct CameraStat: Identifiable, Hashable {
-    let id = UUID()
-    let camera: String
-    let count: Int
-}
-
-struct AspectRatioStat: Identifiable, Hashable {
-    let id = UUID()
-    let category: String
-    let count: Int
-    let percentage: Double
-}
-
-struct DestinationStat: Identifiable, Hashable {
-    let id = UUID()
-    let city: String
-    let country: String
-    let count: Int
-}
-
-struct AltitudeBucket: Identifiable, Hashable {
-    let id = UUID()
-    let label: String // e.g., "Sea Level", "Low Elevation", "High Mountains"
-    let count: Int
-}
-
-struct HistogramDataPoint: Identifiable, Hashable {
-    let id = UUID()
-    let intKey: Int
-    let label: String
-    let count: Int
-    let type: String // "Photo" or "Video"
-}
-
 // MARK: - Photos Library Manager
 @MainActor
 class PhotosLibraryManager: ObservableObject {
@@ -150,7 +23,11 @@ class PhotosLibraryManager: ObservableObject {
         case permissionDenied
     }
     
-    @Published var photos: [Photo] = []
+    @Published var photos: [Photo] = [] {
+        didSet {
+            recalculatePhotosAnalytics()
+        }
+    }
     @Published var allPhotos: [Photo] = []
     @Published var isLoading: Bool = false
     @Published var syncError: String? = nil
@@ -164,6 +41,9 @@ class PhotosLibraryManager: ObservableObject {
     @Published var currentFilter: TimeFilter = .specificYear(Calendar.current.component(.year, from: Date()))
     @Published var customStartDate: Date = Calendar.current.date(byAdding: .month, value: -1, to: Date()) ?? Date()
     @Published var customEndDate: Date = Date()
+    
+    @Published var precomputedAnalytics: PhotosAnalytics? = nil
+    private var recalculateTask: Task<Void, Never>? = nil
     
     var currentYearString: String {
         "\(Calendar.current.component(.year, from: Date()))"
@@ -908,78 +788,122 @@ class PhotosLibraryManager: ObservableObject {
     
     // MARK: - Computed Properties for Photography Analytics
     
-    var totalAssetsCount: Int {
-        return photos.count
+    // MARK: - Precomputed Analytics Getters
+    
+    var totalAssetsCount: Int { precomputedAnalytics?.totalAssetsCount ?? photos.count }
+    var favoritesCount: Int { precomputedAnalytics?.favoritesCount ?? 0 }
+    var favoritePercentage: Double { precomputedAnalytics?.favoritePercentage ?? 0.0 }
+    var videosCount: Int { precomputedAnalytics?.videosCount ?? 0 }
+    var photosCount: Int { precomputedAnalytics?.photosCount ?? 0 }
+    var dateRangeFormatted: String { precomputedAnalytics?.dateRangeFormatted ?? "No Data" }
+    var mediaTypeComposition: [GenreStat] { precomputedAnalytics?.mediaTypeComposition ?? [] }
+    var photosTimeline: [TimelineStat] { precomputedAnalytics?.photosTimeline ?? [] }
+    var captureHourCounts: [Int: Int] { precomputedAnalytics?.captureHourCounts ?? [:] }
+    var hourlyHistogramData: [HistogramDataPoint] { precomputedAnalytics?.hourlyHistogramData ?? [] }
+    var weekdayHistogramData: [HistogramDataPoint] { precomputedAnalytics?.weekdayHistogramData ?? [] }
+    var dayOfMonthHistogramData: [HistogramDataPoint] { precomputedAnalytics?.dayOfMonthHistogramData ?? [] }
+    var monthHistogramData: [HistogramDataPoint] { precomputedAnalytics?.monthHistogramData ?? [] }
+    var peakWeekday: String { precomputedAnalytics?.peakWeekday ?? "Unknown Day" }
+    var peakWeekdayPercentage: Double { precomputedAnalytics?.peakWeekdayPercentage ?? 0.0 }
+    var temporalCaptureStats: [TemporalStat] { precomputedAnalytics?.temporalCaptureStats ?? [] }
+    var cameraDistribution: [CameraStat] { precomputedAnalytics?.cameraDistribution ?? [] }
+    var aspectRatios: [AspectRatioStat] { precomputedAnalytics?.aspectRatios ?? [] }
+    var destinations: [DestinationStat] { precomputedAnalytics?.destinations ?? [] }
+    var totalCitiesVisited: Int { precomputedAnalytics?.totalCitiesVisited ?? 0 }
+    var totalCountriesVisited: Int { precomputedAnalytics?.totalCountriesVisited ?? 0 }
+    var maxAltitudePhoto: Photo? { precomputedAnalytics?.maxAltitudePhoto }
+    var maxAltitudeFormatted: String { precomputedAnalytics?.maxAltitudeFormatted ?? "0 meters" }
+    var maxAltitudeDetails: String { precomputedAnalytics?.maxAltitudeDetails ?? "No altitude data" }
+    var maxAltitude: Double { precomputedAnalytics?.maxAltitude ?? 0.0 }
+    var northernMostPhoto: Photo? { precomputedAnalytics?.northernMostPhoto }
+    var southernMostPhoto: Photo? { precomputedAnalytics?.southernMostPhoto }
+    var northernMostFormatted: String { precomputedAnalytics?.northernMostFormatted ?? "Unknown Latitude" }
+    var northernMostDetails: String { precomputedAnalytics?.northernMostDetails ?? "No coordinate data" }
+    var southernMostFormatted: String { precomputedAnalytics?.southernMostFormatted ?? "Unknown Latitude" }
+    var southernMostDetails: String { precomputedAnalytics?.southernMostDetails ?? "No coordinate data" }
+    var altitudeProfile: [AltitudeBucket] { precomputedAnalytics?.altitudeProfile ?? [] }
+    let altitudeProfileLabels = ["< 20 m", "20 m - 100 m", "100 m - 500 m", "> 500 m"]
+    var photographyPersona: PersonaProfile { 
+        precomputedAnalytics?.photographyPersona ?? PersonaProfile(
+            name: "The Visual Explorer",
+            subtitle: "First Impressions",
+            description: "Your creative photography style will take form once you sync your Photos library and catalog your captures.",
+            nostalgiaIndex: 0, varietyScore: 0, focusScore: 0, loyaltyScore: 0,
+            gradientColors: [.emerald, .teal]
+        )
     }
     
-    var favoritesCount: Int {
-        return photos.filter(\.isFavorite).count
-    }
+    // Sidebar precomputed clusters
+    var precomputedCityClusters: [MappedCluster] { precomputedAnalytics?.cityClusters ?? [] }
+    var precomputedCountryClusters: [MappedCluster] { precomputedAnalytics?.countryClusters ?? [] }
     
-    var favoritePercentage: Double {
-        let total = Double(totalAssetsCount)
-        guard total > 0 else { return 0.0 }
-        return (Double(favoritesCount) / total) * 100.0
-    }
+    // Map precomputed clusters by zoom level
+    var precomputedMapClusters: [MapZoomLevel: [MappedCluster]] { precomputedAnalytics?.mapClustersByZoomLevel ?? [:] }
     
-    var videosCount: Int {
-        return photos.filter { $0.mediaType == "Video" }.count
-    }
-    
-    var photosCount: Int {
-        return totalAssetsCount - videosCount
-    }
-    
-    var dateRangeFormatted: String {
-        guard !photos.isEmpty else { return "No Data" }
-        let dates = photos.map(\.dateAdded)
-        let minDate = Date(timeIntervalSince1970: dates.min() ?? 0)
-        let maxDate = Date(timeIntervalSince1970: dates.max() ?? 0)
-        
-        let formatter = DateFormatter()
-        formatter.dateFormat = "MMM yyyy"
-        return "\(formatter.string(from: minDate)) – \(formatter.string(from: maxDate))"
-    }
-    
-    // Media format composition count
-    var mediaTypeComposition: [GenreStat] {
-        let total = Double(totalAssetsCount)
-        guard total > 0 else { return [] }
-        
-        var photoCount = 0
-        var videoCount = 0
-        var livePhotoCount = 0
-        
-        for item in photos {
-            if item.mediaType == "Video" {
-                videoCount += 1
-            } else if item.isLivePhoto {
-                livePhotoCount += 1
-            } else {
-                photoCount += 1
+    func recalculatePhotosAnalytics(synchronous: Bool = false) {
+        let currentPhotos = self.photos
+        if synchronous || currentPhotos.count < 2000 {
+            recalculateTask?.cancel()
+            let stats = Self.computeAnalytics(for: currentPhotos)
+            self.precomputedAnalytics = stats
+        } else {
+            recalculateTask?.cancel()
+            recalculateTask = Task.detached(priority: .userInitiated) {
+                let stats = Self.computeAnalytics(for: currentPhotos)
+                if Task.isCancelled { return }
+                await MainActor.run {
+                    self.precomputedAnalytics = stats
+                }
             }
         }
-        
-        return [
-            GenreStat(genre: "Still Photos", count: photoCount, percentage: (Double(photoCount) / total) * 100.0),
-            GenreStat(genre: "Videos", count: videoCount, percentage: (Double(videoCount) / total) * 100.0),
-            GenreStat(genre: "Live Photos", count: livePhotoCount, percentage: (Double(livePhotoCount) / total) * 100.0)
-        ]
     }
     
-    // Timeline of Photo Captures (growth month-by-month)
-    var photosTimeline: [TimelineStat] {
+    nonisolated static func computeAnalytics(for photos: [Photo]) -> PhotosAnalytics {
+        let totalAssetsCount = photos.count
+        let favoritesCount = photos.filter(\.isFavorite).count
+        let favoritePercentage: Double = totalAssetsCount > 0 ? (Double(favoritesCount) / Double(totalAssetsCount)) * 100.0 : 0.0
+        let videosCount = photos.filter { $0.mediaType == "Video" }.count
+        let photosCount = totalAssetsCount - videosCount
+        
+        let dateRangeFormatted: String
+        if !photos.isEmpty {
+            let dates = photos.map(\.dateAdded)
+            let minDate = Date(timeIntervalSince1970: dates.min() ?? 0)
+            let maxDate = Date(timeIntervalSince1970: dates.max() ?? 0)
+            let formatter = DateFormatter()
+            formatter.dateFormat = "MMM yyyy"
+            dateRangeFormatted = "\(formatter.string(from: minDate)) – \(formatter.string(from: maxDate))"
+        } else {
+            dateRangeFormatted = "No Data"
+        }
+        
+        let totalDouble = Double(totalAssetsCount)
+        var pCount = 0
+        var vCount = 0
+        var lpCount = 0
+        for item in photos {
+            if item.mediaType == "Video" {
+                vCount += 1
+            } else if item.isLivePhoto {
+                lpCount += 1
+            } else {
+                pCount += 1
+            }
+        }
+        let mediaTypeComposition = totalDouble > 0 ? [
+            GenreStat(genre: "Still Photos", count: pCount, percentage: (Double(pCount) / totalDouble) * 100.0),
+            GenreStat(genre: "Videos", count: vCount, percentage: (Double(vCount) / totalDouble) * 100.0),
+            GenreStat(genre: "Live Photos", count: lpCount, percentage: (Double(lpCount) / totalDouble) * 100.0)
+        ] : []
+        
         let cal = Calendar.current
         var groupings: [String: (date: Date, count: Int)] = [:]
-        
         let formatter = DateFormatter()
         formatter.dateFormat = "MMM yyyy"
-        
         for item in photos {
             let date = item.capturedDate
             let components = cal.dateComponents([.year, .month], from: date)
             guard let monthStart = cal.date(from: components) else { continue }
-            
             let key = formatter.string(from: monthStart)
             if let existing = groupings[key] {
                 groupings[key] = (monthStart, existing.count + 1)
@@ -987,31 +911,18 @@ class PhotosLibraryManager: ObservableObject {
                 groupings[key] = (monthStart, 1)
             }
         }
-        
-        return groupings.values.map { val in
+        let photosTimeline = groupings.values.map { val in
             TimelineStat(date: val.date, monthYearString: formatter.string(from: val.date), count: val.count)
         }.sorted(by: { $0.date < $1.date })
-    }
-    
-    // Hourly capture counts
-    var captureHourCounts: [Int: Int] {
-        var counts: [Int: Int] = [:]
-        var cal = Calendar.current
-        cal.timeZone = TimeZone.current
+        
+        var captureHourCounts: [Int: Int] = [:]
         for item in photos {
             let hour = cal.component(.hour, from: item.capturedDate)
-            counts[hour, default: 0] += 1
+            captureHourCounts[hour, default: 0] += 1
         }
-        return counts
-    }
-    
-    // ─── Granular Histogram Data Calculations ───
-    
-    var hourlyHistogramData: [HistogramDataPoint] {
+        
         var photoCounts = [Int: Int]()
         var videoCounts = [Int: Int]()
-        var cal = Calendar.current
-        cal.timeZone = TimeZone.current
         for item in photos {
             let hour = cal.component(.hour, from: item.capturedDate)
             if item.mediaType == "Video" {
@@ -1020,338 +931,248 @@ class PhotosLibraryManager: ObservableObject {
                 photoCounts[hour, default: 0] += 1
             }
         }
-        
-        var points = [HistogramDataPoint]()
+        var hourlyHistogramData = [HistogramDataPoint]()
         for hour in 0..<24 {
             let suffix = hour >= 12 ? "PM" : "AM"
             let val = hour == 0 ? 12 : (hour > 12 ? hour - 12 : hour)
             let label = "\(val) \(suffix)"
-            
-            points.append(HistogramDataPoint(intKey: hour, label: label, count: photoCounts[hour, default: 0], type: "Photo"))
-            points.append(HistogramDataPoint(intKey: hour, label: label, count: videoCounts[hour, default: 0], type: "Video"))
+            hourlyHistogramData.append(HistogramDataPoint(intKey: hour, label: label, count: photoCounts[hour, default: 0], type: "Photo"))
+            hourlyHistogramData.append(HistogramDataPoint(intKey: hour, label: label, count: videoCounts[hour, default: 0], type: "Video"))
         }
-        return points
-    }
-    
-    var weekdayHistogramData: [HistogramDataPoint] {
-        var photoCounts = [Int: Int]()
-        var videoCounts = [Int: Int]()
-        var cal = Calendar.current
-        cal.timeZone = TimeZone.current
+        
+        var photoCountsWD = [Int: Int]()
+        var videoCountsWD = [Int: Int]()
         for item in photos {
             let weekday = cal.component(.weekday, from: item.capturedDate)
             if item.mediaType == "Video" {
-                videoCounts[weekday, default: 0] += 1
+                videoCountsWD[weekday, default: 0] += 1
             } else {
-                photoCounts[weekday, default: 0] += 1
+                photoCountsWD[weekday, default: 0] += 1
             }
         }
-        
-        let formatter = DateFormatter()
         let symbols = formatter.shortWeekdaySymbols ?? ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
-        
-        let order = [2, 3, 4, 5, 6, 7, 1] // Monday to Sunday
-        var points = [HistogramDataPoint]()
+        let order = [2, 3, 4, 5, 6, 7, 1]
+        var weekdayHistogramData = [HistogramDataPoint]()
         for (index, day) in order.enumerated() {
             let label = symbols[day - 1]
-            points.append(HistogramDataPoint(intKey: index + 1, label: label, count: photoCounts[day, default: 0], type: "Photo"))
-            points.append(HistogramDataPoint(intKey: index + 1, label: label, count: videoCounts[day, default: 0], type: "Video"))
+            weekdayHistogramData.append(HistogramDataPoint(intKey: index + 1, label: label, count: photoCountsWD[day, default: 0], type: "Photo"))
+            weekdayHistogramData.append(HistogramDataPoint(intKey: index + 1, label: label, count: videoCountsWD[day, default: 0], type: "Video"))
         }
-        return points
-    }
-    
-    var dayOfMonthHistogramData: [HistogramDataPoint] {
-        var photoCounts = [Int: Int]()
-        var videoCounts = [Int: Int]()
-        var cal = Calendar.current
-        cal.timeZone = TimeZone.current
+        
+        var photoCountsDOM = [Int: Int]()
+        var videoCountsDOM = [Int: Int]()
         for item in photos {
             let day = cal.component(.day, from: item.capturedDate)
             if item.mediaType == "Video" {
-                videoCounts[day, default: 0] += 1
+                videoCountsDOM[day, default: 0] += 1
             } else {
-                photoCounts[day, default: 0] += 1
+                photoCountsDOM[day, default: 0] += 1
             }
         }
-        
-        var points = [HistogramDataPoint]()
+        var dayOfMonthHistogramData = [HistogramDataPoint]()
         for day in 1...31 {
             let label = "\(day)"
-            points.append(HistogramDataPoint(intKey: day, label: label, count: photoCounts[day, default: 0], type: "Photo"))
-            points.append(HistogramDataPoint(intKey: day, label: label, count: videoCounts[day, default: 0], type: "Video"))
+            dayOfMonthHistogramData.append(HistogramDataPoint(intKey: day, label: label, count: photoCountsDOM[day, default: 0], type: "Photo"))
+            dayOfMonthHistogramData.append(HistogramDataPoint(intKey: day, label: label, count: videoCountsDOM[day, default: 0], type: "Video"))
         }
-        return points
-    }
-    
-    var monthHistogramData: [HistogramDataPoint] {
-        var photoCounts = [Int: Int]()
-        var videoCounts = [Int: Int]()
-        var cal = Calendar.current
-        cal.timeZone = TimeZone.current
+        
+        var photoCountsMon = [Int: Int]()
+        var videoCountsMon = [Int: Int]()
         for item in photos {
             let month = cal.component(.month, from: item.capturedDate)
             if item.mediaType == "Video" {
-                videoCounts[month, default: 0] += 1
+                videoCountsMon[month, default: 0] += 1
             } else {
-                photoCounts[month, default: 0] += 1
+                photoCountsMon[month, default: 0] += 1
             }
         }
-        
-        let formatter = DateFormatter()
-        let symbols = formatter.shortMonthSymbols ?? ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-        
-        var points = [HistogramDataPoint]()
+        let shortMonthSymbols = formatter.shortMonthSymbols ?? ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+        var monthHistogramData = [HistogramDataPoint]()
         for month in 1...12 {
-            let label = symbols[month - 1]
-            points.append(HistogramDataPoint(intKey: month, label: label, count: photoCounts[month, default: 0], type: "Photo"))
-            points.append(HistogramDataPoint(intKey: month, label: label, count: videoCounts[month, default: 0], type: "Video"))
+            let label = shortMonthSymbols[month - 1]
+            monthHistogramData.append(HistogramDataPoint(intKey: month, label: label, count: photoCountsMon[month, default: 0], type: "Photo"))
+            monthHistogramData.append(HistogramDataPoint(intKey: month, label: label, count: videoCountsMon[month, default: 0], type: "Video"))
         }
-        return points
-    }
-
-    // Peak Shooting Weekday Calculations
-    
-    var peakWeekday: String {
-        var counts: [Int: Int] = [:]
-        var cal = Calendar.current
-        cal.timeZone = TimeZone.current
-        for item in photos {
-            let day = cal.component(.weekday, from: item.capturedDate)
-            counts[day, default: 0] += 1
-        }
-        guard let peakDay = counts.max(by: { $0.value < $1.value })?.key else { return "Unknown Day" }
-        let formatter = DateFormatter()
-        let symbols = formatter.weekdaySymbols ?? ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
-        return symbols[peakDay - 1]
-    }
-    
-    var peakWeekdayPercentage: Double {
-        var counts: [Int: Int] = [:]
-        var cal = Calendar.current
-        cal.timeZone = TimeZone.current
-        for item in photos {
-            let day = cal.component(.weekday, from: item.capturedDate)
-            counts[day, default: 0] += 1
-        }
-        guard let peakCount = counts.values.max(), totalAssetsCount > 0 else { return 0.0 }
-        return (Double(peakCount) / Double(totalAssetsCount)) * 100.0
-    }
-    
-    // Categorize temporal photo capture slots
-    var temporalCaptureStats: [TemporalStat] {
-        let counts = captureHourCounts
-        var morning = 0   // 6 AM - 12 PM
-        var afternoon = 0 // 12 PM - 5 PM
-        var golden = 0    // 5 PM - 8 PM (Sunset/Golden hours)
-        var midnight = 0  // 8 PM - 6 AM (Night capture)
         
-        for (hour, count) in counts {
+        var weekdayCounts: [Int: Int] = [:]
+        for item in photos {
+            let day = cal.component(.weekday, from: item.capturedDate)
+            weekdayCounts[day, default: 0] += 1
+        }
+        let peakDay = weekdayCounts.max(by: { $0.value < $1.value })?.key ?? 1
+        let weekdaySymbolsFull = formatter.weekdaySymbols ?? ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+        let peakWeekday = weekdaySymbolsFull[peakDay - 1]
+        
+        let peakCount = weekdayCounts.values.max() ?? 0
+        let peakWeekdayPercentage = totalAssetsCount > 0 ? (Double(peakCount) / Double(totalAssetsCount)) * 100.0 : 0.0
+        
+        var morningTemp = 0
+        var afternoonTemp = 0
+        var goldenTemp = 0
+        var midnightTemp = 0
+        for (hour, count) in captureHourCounts {
             if hour >= 6 && hour < 12 {
-                morning += count
+                morningTemp += count
             } else if hour >= 12 && hour < 17 {
-                afternoon += count
+                afternoonTemp += count
             } else if hour >= 17 && hour < 20 {
-                golden += count
+                goldenTemp += count
             } else {
-                midnight += count
+                midnightTemp += count
             }
         }
-        
-        return [
+        let temporalCaptureStats = [
             TemporalStat(
                 period: "Morning Light",
-                count: morning,
+                count: morningTemp,
                 description: "6 AM – 12 PM • Bright morning exposures & sunrise hues.",
                 icon: "sunrise.fill",
                 gradientColors: [.orange, .yellow]
             ),
             TemporalStat(
                 period: "Midday Standard",
-                count: afternoon,
+                count: afternoonTemp,
                 description: "12 PM – 5 PM • Bright daylight shots & sharp structural outlines.",
                 icon: "sun.max.fill",
                 gradientColors: [.emerald, .teal]
             ),
             TemporalStat(
                 period: "Golden Glow",
-                count: golden,
+                count: goldenTemp,
                 description: "5 PM – 8 PM • Magic hours, warm lighting, & striking long shadows.",
                 icon: "sunset.fill",
                 gradientColors: [.purple, .pink]
             ),
             TemporalStat(
                 period: "Night Nocturnes",
-                count: midnight,
+                count: midnightTemp,
                 description: "8 PM – 6 AM • Neon highlights, flash shots, & starry long exposures.",
                 icon: "moon.stars.fill",
                 gradientColors: [.indigo, .purple]
             )
         ]
-    }
-    
-    // Camera gear stats
-    var cameraDistribution: [CameraStat] {
-        var counts: [String: Int] = [:]
+        
+        var cameraCounts: [String: Int] = [:]
         for item in photos {
             let camera = item.cameraModel ?? "iPhone"
-            counts[camera, default: 0] += 1
+            cameraCounts[camera, default: 0] += 1
         }
-        return counts.map { CameraStat(camera: $0.key, count: $0.value) }.sorted(by: { $0.count > $1.count })
-    }
-    
-    // Crop/Aspect ratio analysis
-    var aspectRatios: [AspectRatioStat] {
-        var counts: [String: Int] = [:]
-        for item in photos {
-            counts[item.aspectCategory, default: 0] += 1
-        }
-        let total = Double(totalAssetsCount)
-        guard total > 0 else { return [] }
+        let cameraDistribution = cameraCounts.map { CameraStat(camera: $0.key, count: $0.value) }.sorted(by: { $0.count > $1.count })
         
-        return counts.map { cat, count in
-            AspectRatioStat(category: cat, count: count, percentage: (Double(count) / total) * 100.0)
-        }.sorted(by: { $0.count > $1.count })
-    }
-    
-    // Geolocation Places: Cities and Countries visited
-    var destinations: [DestinationStat] {
-        var counts: [String: (city: String, country: String, count: Int)] = [:]
+        var aspectCounts: [String: Int] = [:]
+        for item in photos {
+            aspectCounts[item.aspectCategory, default: 0] += 1
+        }
+        let aspectRatios = totalAssetsCount > 0 ? aspectCounts.map { cat, count in
+            AspectRatioStat(category: cat, count: count, percentage: (Double(count) / Double(totalAssetsCount)) * 100.0)
+        }.sorted(by: { $0.count > $1.count }) : []
+        
+        var destCounts: [String: (city: String, country: String, count: Int)] = [:]
         for item in photos {
             guard let city = item.cityName, let country = item.countryName else { continue }
             let key = "\(city), \(country)"
-            if let existing = counts[key] {
-                counts[key] = (city, country, existing.count + 1)
+            if let existing = destCounts[key] {
+                destCounts[key] = (city, country, existing.count + 1)
             } else {
-                counts[key] = (city, country, 1)
+                destCounts[key] = (city, country, 1)
             }
         }
-        return counts.values.map { DestinationStat(city: $0.city, country: $0.country, count: $0.count) }.sorted(by: { $0.count > $1.count })
-    }
-    
-    var totalCitiesVisited: Int {
-        return Set(photos.compactMap(\.cityName)).count
-    }
-    
-    var totalCountriesVisited: Int {
-        return Set(photos.compactMap(\.countryName)).count
-    }
-    
-    let altitudeProfileLabels = ["< 20 m", "20 m - 100 m", "100 m - 500 m", "> 500 m"]
-    
-    var maxAltitudePhoto: Photo? {
+        let destinations = destCounts.values.map { DestinationStat(city: $0.city, country: $0.country, count: $0.count) }.sorted(by: { $0.count > $1.count })
+        let totalCitiesVisited = Set(photos.compactMap(\.cityName)).count
+        let totalCountriesVisited = Set(photos.compactMap(\.countryName)).count
+        
         let validPhotos = photos.filter { photo in
             guard let alt = photo.altitude else { return false }
             return abs(alt) > 0.01 && alt >= -100.0 && alt <= 8500.0
         }
-        return validPhotos.max(by: { ($0.altitude ?? 0.0) < ($1.altitude ?? 0.0) })
-    }
-    
-    private var altitudeNumberFormatter: NumberFormatter {
-        let f = NumberFormatter()
-        f.numberStyle = .decimal
-        f.groupingSeparator = ","
-        f.maximumFractionDigits = 0
-        return f
-    }
-    
-    var maxAltitudeFormatted: String {
-        guard let alt = maxAltitudePhoto?.altitude else { return "0 meters" }
-        let formattedVal = altitudeNumberFormatter.string(from: NSNumber(value: alt)) ?? String(format: "%.0f", alt)
-        return "\(formattedVal) meters"
-    }
-    
-    var maxAltitudeDetails: String {
-        guard let photo = maxAltitudePhoto else { return "No altitude data" }
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .none
-        let dateStr = formatter.string(from: photo.capturedDate)
+        let maxAltitudePhoto = validPhotos.max(by: { ($0.altitude ?? 0.0) < ($1.altitude ?? 0.0) })
         
-        if let city = photo.cityName, let country = photo.countryName {
-            return "\(dateStr) • \(city), \(country)"
-        } else if let lat = photo.latitude, let lon = photo.longitude {
-            return String(format: "%@ • %.2f°, %.2f°", dateStr, lat, lon)
+        let altFormatter = NumberFormatter()
+        altFormatter.numberStyle = .decimal
+        altFormatter.groupingSeparator = ","
+        altFormatter.maximumFractionDigits = 0
+        let maxAltitudeFormatted: String
+        if let alt = maxAltitudePhoto?.altitude {
+            let formattedVal = altFormatter.string(from: NSNumber(value: alt)) ?? String(format: "%.0f", alt)
+            maxAltitudeFormatted = "\(formattedVal) meters"
         } else {
-            return dateStr
+            maxAltitudeFormatted = "0 meters"
         }
-    }
-    
-    var maxAltitude: Double {
-        return maxAltitudePhoto?.altitude ?? 0.0
-    }
-    
-    var northernMostPhoto: Photo? {
-        return photos.filter { $0.latitude != nil }.max(by: { ($0.latitude ?? 0.0) < ($1.latitude ?? 0.0) })
-    }
-    
-    var southernMostPhoto: Photo? {
-        return photos.filter { $0.latitude != nil }.min(by: { ($0.latitude ?? 0.0) < ($1.latitude ?? 0.0) })
-    }
-    
-    var northernMostFormatted: String {
-        guard let lat = northernMostPhoto?.latitude else { return "Unknown Latitude" }
-        return formatLatitude(lat)
-    }
-    
-    var northernMostDetails: String {
-        guard let photo = northernMostPhoto else { return "No coordinate data" }
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .none
-        let dateStr = formatter.string(from: photo.capturedDate)
         
-        if let city = photo.cityName, let country = photo.countryName {
-            return "\(dateStr) • \(city), \(country)"
-        } else if let lat = photo.latitude, let lon = photo.longitude {
-            return String(format: "%@ • %.2f°, %.2f°", dateStr, lat, lon)
+        let maxAltitudeDetails: String
+        if let photo = maxAltitudePhoto {
+            let formatterD = DateFormatter()
+            formatterD.dateStyle = .medium
+            formatterD.timeStyle = .none
+            let dateStr = formatterD.string(from: photo.capturedDate)
+            if let city = photo.cityName, let country = photo.countryName {
+                maxAltitudeDetails = "\(dateStr) • \(city), \(country)"
+            } else if let lat = photo.latitude, let lon = photo.longitude {
+                maxAltitudeDetails = String(format: "%@ • %.2f°, %.2f°", dateStr, lat, lon)
+            } else {
+                maxAltitudeDetails = dateStr
+            }
         } else {
-            return dateStr
+            maxAltitudeDetails = "No altitude data"
         }
-    }
-    
-    var southernMostFormatted: String {
-        guard let lat = southernMostPhoto?.latitude else { return "Unknown Latitude" }
-        return formatLatitude(lat)
-    }
-    
-    var southernMostDetails: String {
-        guard let photo = southernMostPhoto else { return "No coordinate data" }
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .none
-        let dateStr = formatter.string(from: photo.capturedDate)
+        let maxAltitude = maxAltitudePhoto?.altitude ?? 0.0
         
-        if let city = photo.cityName, let country = photo.countryName {
-            return "\(dateStr) • \(city), \(country)"
-        } else if let lat = photo.latitude, let lon = photo.longitude {
-            return String(format: "%@ • %.2f°, %.2f°", dateStr, lat, lon)
-        } else {
-            return dateStr
-        }
-    }
-    
-    private func formatLatitude(_ lat: Double) -> String {
-        if lat >= 0 {
-            return String(format: "%.2f° N", lat)
-        } else {
-            return String(format: "%.2f° S", abs(lat))
-        }
-    }
-    
-    // Altitude metrics distribution
-    var altitudeProfile: [AltitudeBucket] {
-        var seaLevel = 0      // 0 - 20 meters
-        var normalElevation = 0 // 20 - 100 meters
-        var mountains = 0     // 100 - 500 meters
-        var airplane = 0      // 500+ meters
+        let northernMostPhoto = photos.filter { $0.latitude != nil }.max(by: { ($0.latitude ?? 0.0) < ($1.latitude ?? 0.0) })
+        let southernMostPhoto = photos.filter { $0.latitude != nil }.min(by: { ($0.latitude ?? 0.0) < ($1.latitude ?? 0.0) })
         
+        let formatLat = { (lat: Double) -> String in
+            if lat >= 0 {
+                return String(format: "%.2f° N", lat)
+            } else {
+                return String(format: "%.2f° S", abs(lat))
+            }
+        }
+        
+        let northernMostFormatted = northernMostPhoto?.latitude.map(formatLat) ?? "Unknown Latitude"
+        let northernMostDetails: String
+        if let photo = northernMostPhoto {
+            let formatterD = DateFormatter()
+            formatterD.dateStyle = .medium
+            formatterD.timeStyle = .none
+            let dateStr = formatterD.string(from: photo.capturedDate)
+            if let city = photo.cityName, let country = photo.countryName {
+                northernMostDetails = "\(dateStr) • \(city), \(country)"
+            } else if let lat = photo.latitude, let lon = photo.longitude {
+                northernMostDetails = String(format: "%@ • %.2f°, %.2f°", dateStr, lat, lon)
+            } else {
+                northernMostDetails = dateStr
+            }
+        } else {
+            northernMostDetails = "No coordinate data"
+        }
+        
+        let southernMostFormatted = southernMostPhoto?.latitude.map(formatLat) ?? "Unknown Latitude"
+        let southernMostDetails: String
+        if let photo = southernMostPhoto {
+            let formatterD = DateFormatter()
+            formatterD.dateStyle = .medium
+            formatterD.timeStyle = .none
+            let dateStr = formatterD.string(from: photo.capturedDate)
+            if let city = photo.cityName, let country = photo.countryName {
+                southernMostDetails = "\(dateStr) • \(city), \(country)"
+            } else if let lat = photo.latitude, let lon = photo.longitude {
+                southernMostDetails = String(format: "%@ • %.2f°, %.2f°", dateStr, lat, lon)
+            } else {
+                southernMostDetails = dateStr
+            }
+        } else {
+            southernMostDetails = "No coordinate data"
+        }
+        
+        var seaLevel = 0
+        var normalElevation = 0
+        var mountains = 0
+        var airplane = 0
         for item in photos {
             guard let alt = item.altitude else { continue }
-            // Ignore placeholders, negative GPS noise, and cruising airplane flights
             if abs(alt) < 0.01 || alt < -100.0 || alt > 8500.0 {
                 continue
             }
-            
             if alt < 20.0 {
                 seaLevel += 1
             } else if alt < 100.0 {
@@ -1362,20 +1183,92 @@ class PhotosLibraryManager: ObservableObject {
                 airplane += 1
             }
         }
-        
-        return [
-            AltitudeBucket(label: altitudeProfileLabels[0], count: seaLevel),
-            AltitudeBucket(label: altitudeProfileLabels[1], count: normalElevation),
-            AltitudeBucket(label: altitudeProfileLabels[2], count: mountains),
-            AltitudeBucket(label: altitudeProfileLabels[3], count: airplane)
+        let altitudeProfile = [
+            AltitudeBucket(label: "< 20 m", count: seaLevel),
+            AltitudeBucket(label: "20 m - 100 m", count: normalElevation),
+            AltitudeBucket(label: "100 m - 500 m", count: mountains),
+            AltitudeBucket(label: "> 500 m", count: airplane)
         ]
-    }
-    
-    // Photography Aura Persona Profile
-    var photographyPersona: PersonaProfile {
-        let total = Double(totalAssetsCount)
-        guard total > 0 else {
-            return PersonaProfile(
+        
+        // Photography Aura Persona Profile
+        let photographyPersona: PersonaProfile
+        if totalAssetsCount > 0 {
+            let total = Double(totalAssetsCount)
+            let totalDestinations = Double(destinations.count)
+            let travelScore = min(100.0, totalDestinations * 12.0)
+            
+            let mirrorlessCount = Double(photos.filter { item in
+                let num = item.id.hashValue
+                let isVideo = item.filename.contains("VID")
+                if isVideo { return false }
+                let brandIdx = abs(num) % 4
+                return brandIdx != 2
+            }.count)
+            let gearScore = (mirrorlessCount / total) * 100.0
+            
+            let goldenHourCount = Double(photos.filter { item in
+                let hour = cal.component(.hour, from: item.capturedDate)
+                return hour >= 17 && hour < 20
+            }.count)
+            let goldenHourScore = (goldenHourCount / total) * 100.0
+            
+            let wideCount = Double(photos.filter { item in
+                item.aspectCategory == "Panoramic"
+            }.count)
+            let compositionScore = (wideCount / total) * 100.0
+            
+            let nightCount = Double(photos.filter { item in
+                let hour = cal.component(.hour, from: item.capturedDate)
+                return hour >= 20 || hour < 6
+            }.count)
+            let nightScore = (nightCount / total) * 100.0
+            
+            let name: String
+            let subtitle: String
+            let description: String
+            let gradientColors: [Color]
+            
+            if travelScore >= 60.0 {
+                name = "The Jetsetter Archivist"
+                subtitle = "Global Visual Voyager"
+                description = "Your camera is a passport. You have traveled across multiple cities and countries, building a gorgeous visual archive of diverse worldwide cultures and landmarks."
+                gradientColors = [.emerald, .teal]
+            } else if goldenHourScore >= 20.0 {
+                name = "The Golden Hour Guru"
+                subtitle = "Magic Hour Connoisseur"
+                description = "You chase the warm glow. A high percentage of your photographs are captured during the brief, gorgeous intervals of sunrise and sunset, celebrating glowing shadows and ambient warmth."
+                gradientColors = [.orange, .pink]
+            } else if gearScore >= 70.0 {
+                name = "The Dedicated Purist"
+                subtitle = "Fine Art Photographer"
+                description = "You reject mobile convenience in favor of pure optical craft. Your catalog is dominated by fine-lens captures from dedicated mirrorless systems, focusing on rich image quality."
+                gradientColors = [.cyan, .blue]
+            } else if compositionScore >= 12.0 {
+                name = "The Cinematic Landscape"
+                subtitle = "Panoramic Horizonist"
+                description = "You think in wide screens. Your collection features an outstanding ratio of ultra-wide, cinematic, and high-altitude landscape perspectives, capturing natural grandeur."
+                gradientColors = [.purple, .indigo]
+            } else if nightScore >= 35.0 {
+                name = "The Night Owl Artist"
+                subtitle = "Low-Light Visionary"
+                description = "The darkness is your canvas. You specialize in low-light environments, neon highlights, flash portraits, and long exposures captured under the cover of night."
+                gradientColors = [.indigo, .purple]
+            } else {
+                name = "The Harmonious Historian"
+                subtitle = "Balanced Memory Archivist"
+                description = "You capture the full spectrum of life. Your photography library displays a well-balanced profile, harmonizing daytime memories, travel snapshots, mobile phone grabs, and classic favorites."
+                gradientColors = [.teal, .indigo]
+            }
+            
+            photographyPersona = PersonaProfile(
+                name: name, subtitle: subtitle,
+                description: description,
+                nostalgiaIndex: travelScore, varietyScore: gearScore,
+                focusScore: goldenHourScore, loyaltyScore: compositionScore,
+                gradientColors: gradientColors
+            )
+        } else {
+            photographyPersona = PersonaProfile(
                 name: "The Visual Explorer",
                 subtitle: "First Impressions",
                 description: "Your creative photography style will take form once you sync your Photos library and catalog your captures.",
@@ -1384,86 +1277,127 @@ class PhotosLibraryManager: ObservableObject {
             )
         }
         
-        // 1. Travel Index (Ratio of non-home captures)
-        let totalDestinations = Double(destinations.count)
-        let travelScore = min(100.0, totalDestinations * 12.0)
+        // City Clusters
+        var cityDict: [String: [Photo]] = [:]
+        for photo in photos {
+            guard let lat = photo.latitude, let lon = photo.longitude else { continue }
+            let key = (photo.cityName != nil && photo.countryName != nil) ? "\(photo.cityName!), \(photo.countryName!)" : String(format: "%.1f,%.1f", lat, lon)
+            cityDict[key, default: []].append(photo)
+        }
+        let cityClusters = cityDict.compactMap { key, clusterPhotos -> MappedCluster? in
+            guard let first = clusterPhotos.first else { return nil }
+            let avgLat = clusterPhotos.compactMap(\.latitude).reduce(0.0, +) / Double(clusterPhotos.count)
+            let avgLon = clusterPhotos.compactMap(\.longitude).reduce(0.0, +) / Double(clusterPhotos.count)
+            return MappedCluster(
+                id: key,
+                cityName: first.cityName ?? "Unknown Region",
+                countryName: first.countryName ?? "Unknown Country",
+                coordinate: CLLocationCoordinate2D(latitude: avgLat, longitude: avgLon),
+                photos: clusterPhotos
+                )
+        }.sorted(by: { $0.count > $1.count })
         
-        // 2. Camera Gear Index (Mirrorless vs Smartphone)
-        let mirrorlessCount = Double(photos.filter { item in
-            let num = item.id.hashValue
-            let isVideo = item.filename.contains("VID")
-            if isVideo { return false }
-            let brandIdx = abs(num) % 4
-            return brandIdx != 2 // Index 2 is iPhone 15 Pro
-        }.count)
-        let gearScore = (mirrorlessCount / total) * 100.0
+        // Country Clusters
+        var countryDict: [String: [Photo]] = [:]
+        for photo in photos {
+            guard photo.latitude != nil, photo.longitude != nil else { continue }
+            let key = photo.countryName ?? "Unknown Country"
+            countryDict[key, default: []].append(photo)
+        }
+        let countryClusters = countryDict.compactMap { key, clusterPhotos -> MappedCluster? in
+            let avgLat = clusterPhotos.compactMap(\.latitude).reduce(0.0, +) / Double(clusterPhotos.count)
+            let avgLon = clusterPhotos.compactMap(\.longitude).reduce(0.0, +) / Double(clusterPhotos.count)
+            let cityCount = Set(clusterPhotos.compactMap(\.cityName)).count
+            let cityLabel = cityCount == 1 ? "1 city visited" : "\(cityCount) cities visited"
+            return MappedCluster(
+                id: key,
+                cityName: key,
+                countryName: cityLabel,
+                coordinate: CLLocationCoordinate2D(latitude: avgLat, longitude: avgLon),
+                photos: clusterPhotos
+            )
+        }.sorted(by: { $0.count > $1.count })
         
-        // 3. Golden Hour Ratio
-        var cal = Calendar.current
-        cal.timeZone = TimeZone.current
-        let goldenHourCount = Double(photos.filter { item in
-            let hour = cal.component(.hour, from: item.capturedDate)
-            return hour >= 17 && hour < 20 // 5 PM - 8 PM (Sunset/Magic hour)
-        }.count)
-        let goldenHourScore = (goldenHourCount / total) * 100.0
-        
-        // 4. Composition Focus (Panoramic/Wide ratio)
-        let wideCount = Double(photos.filter { item in
-            item.aspectCategory == "Panoramic"
-        }.count)
-        let compositionScore = (wideCount / total) * 100.0
-        
-        // 5. Night Owl Ratio (8 PM - 6 AM)
-        let nightCount = Double(photos.filter { item in
-            let hour = cal.component(.hour, from: item.capturedDate)
-            return hour >= 20 || hour < 6
-        }.count)
-        let nightScore = (nightCount / total) * 100.0
-        
-        // Persona selection logic
-        let name: String
-        let subtitle: String
-        let description: String
-        let gradientColors: [Color]
-        
-        if travelScore >= 60.0 {
-            name = "The Jetsetter Archivist"
-            subtitle = "Global Visual Voyager"
-            description = "Your camera is a passport. You have traveled across multiple cities and countries, building a gorgeous visual archive of diverse worldwide cultures and landmarks."
-            gradientColors = [.emerald, .teal]
-        } else if goldenHourScore >= 20.0 {
-            name = "The Golden Hour Guru"
-            subtitle = "Magic Hour Connoisseur"
-            description = "You chase the warm glow. A high percentage of your photographs are captured during the brief, gorgeous intervals of sunrise and sunset, celebrating glowing shadows and ambient warmth."
-            gradientColors = [.orange, .pink]
-        } else if gearScore >= 70.0 {
-            name = "The Dedicated Purist"
-            subtitle = "Fine Art Photographer"
-            description = "You reject mobile convenience in favor of pure optical craft. Your catalog is dominated by fine-lens captures from dedicated mirrorless systems, focusing on rich image quality."
-            gradientColors = [.cyan, .blue]
-        } else if compositionScore >= 12.0 {
-            name = "The Cinematic Landscape"
-            subtitle = "Panoramic Horizonist"
-            description = "You think in wide screens. Your collection features an outstanding ratio of ultra-wide, cinematic, and high-altitude landscape perspectives, capturing natural grandeur."
-            gradientColors = [.purple, .indigo]
-        } else if nightScore >= 35.0 {
-            name = "The Night Owl Artist"
-            subtitle = "Low-Light Visionary"
-            description = "The darkness is your canvas. You specialize in low-light environments, neon highlights, flash portraits, and long exposures captured under the cover of night."
-            gradientColors = [.indigo, .purple]
-        } else {
-            name = "The Harmonious Historian"
-            subtitle = "Balanced Memory Archivist"
-            description = "You capture the full spectrum of life. Your photography library displays a well-balanced profile, harmonizing daytime memories, travel snapshots, mobile phone grabs, and classic favorites."
-            gradientColors = [.teal, .indigo]
+        // Map Clusters by zoom level
+        var mapClustersByZoomLevel: [MapZoomLevel: [MappedCluster]] = [:]
+        for level in MapZoomLevel.allCases {
+            let delta = level.representativeDelta
+            var levelDict: [String: [Photo]] = [:]
+            for photo in photos {
+                guard let lat = photo.latitude, let lon = photo.longitude else { continue }
+                let key: String
+                if delta > 40.0 {
+                    key = photo.countryName ?? "Unknown Country"
+                } else if delta > 8.0 {
+                    if let city = photo.cityName, let country = photo.countryName {
+                        key = "\(city), \(country)"
+                    } else {
+                        key = String(format: "%.1f,%.1f", lat, lon)
+                    }
+                } else if delta > 2.0 {
+                    key = String(format: "%.1f,%.1f", lat, lon)
+                } else if delta > 0.4 {
+                    key = String(format: "%.2f,%.2f", lat, lon)
+                } else if delta > 0.08 {
+                    key = String(format: "%.3f,%.3f", lat, lon)
+                } else {
+                    key = String(format: "%.4f,%.4f", lat, lon)
+                }
+                levelDict[key, default: []].append(photo)
+            }
+            let levelClusters = levelDict.compactMap { key, clusterPhotos -> MappedCluster? in
+                guard let first = clusterPhotos.first else { return nil }
+                let avgLat = clusterPhotos.compactMap(\.latitude).reduce(0.0, +) / Double(clusterPhotos.count)
+                let avgLon = clusterPhotos.compactMap(\.longitude).reduce(0.0, +) / Double(clusterPhotos.count)
+                return MappedCluster(
+                    id: key,
+                    cityName: first.cityName ?? "Unknown Region",
+                    countryName: first.countryName ?? "Unknown Country",
+                    coordinate: CLLocationCoordinate2D(latitude: avgLat, longitude: avgLon),
+                    photos: clusterPhotos
+                )
+            }.sorted(by: { $0.count > $1.count })
+            mapClustersByZoomLevel[level] = levelClusters
         }
         
-        return PersonaProfile(
-            name: name, subtitle: subtitle,
-            description: description,
-            nostalgiaIndex: travelScore, varietyScore: gearScore,
-            focusScore: goldenHourScore, loyaltyScore: compositionScore,
-            gradientColors: gradientColors
+        return PhotosAnalytics(
+            totalAssetsCount: totalAssetsCount,
+            favoritesCount: favoritesCount,
+            favoritePercentage: favoritePercentage,
+            videosCount: videosCount,
+            photosCount: photosCount,
+            dateRangeFormatted: dateRangeFormatted,
+            mediaTypeComposition: mediaTypeComposition,
+            photosTimeline: photosTimeline,
+            captureHourCounts: captureHourCounts,
+            hourlyHistogramData: hourlyHistogramData,
+            weekdayHistogramData: weekdayHistogramData,
+            dayOfMonthHistogramData: dayOfMonthHistogramData,
+            monthHistogramData: monthHistogramData,
+            peakWeekday: peakWeekday,
+            peakWeekdayPercentage: peakWeekdayPercentage,
+            temporalCaptureStats: temporalCaptureStats,
+            cameraDistribution: cameraDistribution,
+            aspectRatios: aspectRatios,
+            destinations: destinations,
+            totalCitiesVisited: totalCitiesVisited,
+            totalCountriesVisited: totalCountriesVisited,
+            maxAltitudePhoto: maxAltitudePhoto,
+            maxAltitudeFormatted: maxAltitudeFormatted,
+            maxAltitudeDetails: maxAltitudeDetails,
+            maxAltitude: maxAltitude,
+            northernMostPhoto: northernMostPhoto,
+            southernMostPhoto: southernMostPhoto,
+            northernMostFormatted: northernMostFormatted,
+            northernMostDetails: northernMostDetails,
+            southernMostFormatted: southernMostFormatted,
+            southernMostDetails: southernMostDetails,
+            altitudeProfile: altitudeProfile,
+            photographyPersona: photographyPersona,
+            cityClusters: cityClusters,
+            countryClusters: countryClusters,
+            mapClustersByZoomLevel: mapClustersByZoomLevel
         )
     }
+
 }
