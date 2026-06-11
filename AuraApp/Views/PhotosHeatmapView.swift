@@ -552,7 +552,7 @@ struct PhotosHeatmapView: View {
         var id: String { rawValue }
     }
     @State private var visualizationMode: VisualizationMode = .heatmap
-    @State private var selectedDevice: String? = nil
+    @State private var selectedDevices: Set<String> = []
     
     enum MapStyleSelection: String, CaseIterable, Identifiable {
         case standard = "Standard"
@@ -948,23 +948,23 @@ struct PhotosHeatmapView: View {
                                     // All Devices Option
                                     Button(action: {
                                         withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
-                                            selectedDevice = nil
+                                            selectedDevices.removeAll()
                                         }
                                     }) {
                                         HStack(spacing: 8) {
                                             Image(systemName: "cpu")
                                                 .font(.system(size: 9))
-                                                .foregroundColor(selectedDevice == nil ? .emerald : .secondary)
+                                                .foregroundColor(selectedDevices.isEmpty ? .emerald : .secondary)
                                                 .frame(width: 14)
                                             
                                             Text("All Devices")
                                                 .font(.system(size: 10, weight: .semibold, design: .rounded))
-                                                .foregroundColor(selectedDevice == nil ? .emerald : .white.opacity(0.95))
+                                                .foregroundColor(selectedDevices.isEmpty ? .emerald : .white.opacity(0.95))
                                                 .lineLimit(1)
                                             
                                             Spacer()
                                             
-                                            if selectedDevice == nil {
+                                            if selectedDevices.isEmpty {
                                                 Image(systemName: "checkmark")
                                                     .font(.system(size: 9, weight: .bold))
                                                     .foregroundColor(.emerald)
@@ -973,11 +973,11 @@ struct PhotosHeatmapView: View {
                                         .padding(.horizontal, 10)
                                         .padding(.vertical, 6)
                                         .frame(maxWidth: .infinity)
-                                        .background(selectedDevice == nil ? Color.emerald.opacity(0.10) : Color.white.opacity(0.02))
+                                        .background(selectedDevices.isEmpty ? Color.emerald.opacity(0.10) : Color.white.opacity(0.02))
                                         .cornerRadius(6)
                                         .overlay(
                                             RoundedRectangle(cornerRadius: 6)
-                                                .stroke(selectedDevice == nil ? Color.emerald.opacity(0.3) : Color.clear, lineWidth: 1)
+                                                .stroke(selectedDevices.isEmpty ? Color.emerald.opacity(0.3) : Color.clear, lineWidth: 1)
                                         )
                                     }
                                     .buttonStyle(.plain)
@@ -989,23 +989,38 @@ struct PhotosHeatmapView: View {
                                                 ForEach(availableDevices, id: \.self) { device in
                                                     Button(action: {
                                                         withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
-                                                            selectedDevice = device
+                                                            if selectedDevices.contains(device) {
+                                                                selectedDevices.remove(device)
+                                                            } else {
+                                                                selectedDevices.insert(device)
+                                                            }
                                                         }
                                                     }) {
                                                         HStack(spacing: 8) {
                                                             Image(systemName: deviceIcon(for: device))
                                                                 .font(.system(size: 9))
-                                                                .foregroundColor(selectedDevice == device ? .emerald : .secondary)
+                                                                .foregroundColor(selectedDevices.contains(device) ? .emerald : .secondary)
                                                                 .frame(width: 14)
                                                             
                                                             Text(device)
                                                                 .font(.system(size: 10, weight: .semibold, design: .rounded))
-                                                                .foregroundColor(selectedDevice == device ? .emerald : .white.opacity(0.95))
+                                                                .foregroundColor(selectedDevices.contains(device) ? .emerald : .white.opacity(0.95))
                                                                 .lineLimit(1)
                                                             
                                                             Spacer()
                                                             
-                                                            if selectedDevice == device {
+                                                            // Small monospaced counter badge
+                                                            if let count = devicePhotoCounts[device] {
+                                                                Text("\(count)")
+                                                                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                                                    .foregroundColor(selectedDevices.contains(device) ? .emerald.opacity(0.85) : .secondary.opacity(0.8))
+                                                                    .padding(.horizontal, 5)
+                                                                    .padding(.vertical, 1.5)
+                                                                    .background(Color.white.opacity(0.04))
+                                                                    .cornerRadius(4)
+                                                            }
+                                                            
+                                                            if selectedDevices.contains(device) {
                                                                 Image(systemName: "checkmark")
                                                                     .font(.system(size: 9, weight: .bold))
                                                                     .foregroundColor(.emerald)
@@ -1014,11 +1029,11 @@ struct PhotosHeatmapView: View {
                                                         .padding(.horizontal, 10)
                                                         .padding(.vertical, 6)
                                                         .frame(maxWidth: .infinity)
-                                                        .background(selectedDevice == device ? Color.emerald.opacity(0.10) : Color.white.opacity(0.02))
+                                                        .background(selectedDevices.contains(device) ? Color.emerald.opacity(0.10) : Color.white.opacity(0.02))
                                                         .cornerRadius(6)
                                                         .overlay(
                                                             RoundedRectangle(cornerRadius: 6)
-                                                                .stroke(selectedDevice == device ? Color.emerald.opacity(0.3) : Color.clear, lineWidth: 1)
+                                                                .stroke(selectedDevices.contains(device) ? Color.emerald.opacity(0.3) : Color.clear, lineWidth: 1)
                                                         )
                                                     }
                                                     .buttonStyle(.plain)
@@ -1026,7 +1041,7 @@ struct PhotosHeatmapView: View {
                                                 }
                                             }
                                         }
-                                        .frame(maxHeight: 100)
+                                        .frame(maxHeight: 120)
                                     }
                                 }
                             }
@@ -1049,7 +1064,7 @@ struct PhotosHeatmapView: View {
                                 .cornerRadius(8)
                                 .foregroundColor(.white)
                             
-                            if selectedDevice != nil {
+                            if !selectedDevices.isEmpty {
                                 Circle()
                                     .fill(Color.emerald)
                                     .frame(width: 6.5, height: 6.5)
@@ -1237,10 +1252,25 @@ struct PhotosHeatmapView: View {
     
     // MARK: - Calculations
     
+    private var devicePhotoCounts: [String: Int] {
+        var counts: [String: Int] = [:]
+        for photo in manager.photos {
+            if photo.latitude != nil && photo.longitude != nil, let model = photo.cameraModel {
+                counts[model, default: 0] += 1
+            }
+        }
+        return counts
+    }
+    
     private func filterClusters(_ clusters: [MappedCluster]) -> [MappedCluster] {
-        guard let selectedDevice = selectedDevice else { return clusters }
+        guard !selectedDevices.isEmpty else { return clusters }
         return clusters.compactMap { cluster in
-            let filteredPhotos = cluster.photos.filter { $0.cameraModel == selectedDevice }
+            let filteredPhotos = cluster.photos.filter { photo in
+                if let model = photo.cameraModel {
+                    return selectedDevices.contains(model)
+                }
+                return false
+            }
             guard !filteredPhotos.isEmpty else { return nil }
             return MappedCluster(
                 id: cluster.id,
@@ -1266,8 +1296,13 @@ struct PhotosHeatmapView: View {
     }
     
     private var filteredPhotosForMap: [Photo] {
-        if let selectedDevice = selectedDevice {
-            return manager.photos.filter { $0.cameraModel == selectedDevice }
+        if !selectedDevices.isEmpty {
+            return manager.photos.filter { photo in
+                if let model = photo.cameraModel {
+                    return selectedDevices.contains(model)
+                }
+                return false
+            }
         } else {
             return manager.photos
         }
