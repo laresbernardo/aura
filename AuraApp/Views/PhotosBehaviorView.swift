@@ -491,7 +491,7 @@ struct CameraGearRow: View {
         } else if lower.contains("gopro") || lower.contains("hero") {
             return "video.fill"
         } else if lower.contains("meta") || lower.contains("glasses") || lower.contains("ray-ban") {
-            return "glasses"
+            return "eyeglasses"
         } else if lower.contains("d5") || lower.contains("nikon") || lower.contains("canon") || lower.contains("sony") || lower.contains("fujifilm") || lower.contains("panasonic") || lower.contains("leica") || lower.contains("hasselblad") {
             return "camera.aperture"
         } else {

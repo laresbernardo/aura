@@ -125,6 +125,7 @@ class HeatmapCircle: MKCircle {
 // MARK: - Native MKMapView Wrapper with Pulsing Heatmap Circles
 struct HeatmapMapView: NSViewRepresentable {
     let clusters: [MappedCluster]
+    let photos: [Photo]
     @Binding var selectedCluster: MappedCluster?
     @Binding var mapType: MKMapType
     @Binding var centerTrigger: MKCoordinateRegion?
@@ -182,8 +183,13 @@ struct HeatmapMapView: NSViewRepresentable {
             nsView.addAnnotations(newAnnotations)
         }
         
-        // 1b. Sync Overlays (Heatmap mode only)
+        // 1b. Sync Overlays
         if visualizationMode == .heatmap {
+            let existingPolylines = nsView.overlays.compactMap { $0 as? MKPolyline }
+            if !existingPolylines.isEmpty {
+                nsView.removeOverlays(existingPolylines)
+            }
+            
             let delta = nsView.region.span.latitudeDelta
             let baseRadius: Double
             if delta > 40.0 {
@@ -214,8 +220,63 @@ struct HeatmapMapView: NSViewRepresentable {
                     circle.clusterCount = cluster.count
                     return circle
                 }
-                nsView.removeOverlays(nsView.overlays)
+                nsView.removeOverlays(existingCircles)
                 nsView.addOverlays(newOverlays)
+            }
+        } else if visualizationMode == .routes {
+            let existingCircles = nsView.overlays.compactMap { $0 as? HeatmapCircle }
+            if !existingCircles.isEmpty {
+                nsView.removeOverlays(existingCircles)
+            }
+            
+            // Build the unique coordinates of photos sorted chronologically by timestamp
+            let routePhotos = photos
+                .filter { $0.latitude != nil && $0.longitude != nil }
+                .sorted(by: { $0.dateAdded < $1.dateAdded })
+            
+            var coordinates: [CLLocationCoordinate2D] = []
+            coordinates.reserveCapacity(routePhotos.count)
+            for photo in routePhotos {
+                let coord = CLLocationCoordinate2D(latitude: photo.latitude!, longitude: photo.longitude!)
+                if let last = coordinates.last {
+                    if last.latitude == coord.latitude && last.longitude == coord.longitude {
+                        continue
+                    }
+                }
+                coordinates.append(coord)
+            }
+            
+            // Sync polyline overlay
+            let existingPolylines = nsView.overlays.compactMap { $0 as? MKPolyline }
+            
+            var needsUpdate = false
+            if existingPolylines.count != 1 {
+                needsUpdate = true
+            } else if let firstPolyline = existingPolylines.first {
+                if firstPolyline.pointCount != coordinates.count {
+                    needsUpdate = true
+                } else if coordinates.count > 0 {
+                    var firstCoord = CLLocationCoordinate2D()
+                    var lastCoord = CLLocationCoordinate2D()
+                    firstPolyline.getCoordinates(&firstCoord, range: NSRange(location: 0, length: 1))
+                    firstPolyline.getCoordinates(&lastCoord, range: NSRange(location: coordinates.count - 1, length: 1))
+                    
+                    if abs(firstCoord.latitude - coordinates.first!.latitude) > 0.000001 ||
+                       abs(firstCoord.longitude - coordinates.first!.longitude) > 0.000001 ||
+                       abs(lastCoord.latitude - coordinates.last!.latitude) > 0.000001 ||
+                       abs(lastCoord.longitude - coordinates.last!.longitude) > 0.000001 {
+                        needsUpdate = true
+                    }
+                }
+            }
+            
+            if needsUpdate {
+                nsView.removeOverlays(existingPolylines)
+                if !coordinates.isEmpty {
+                    var mutableCoords = coordinates
+                    let polyline = MKPolyline(coordinates: &mutableCoords, count: coordinates.count)
+                    nsView.addOverlay(polyline)
+                }
             }
         } else {
             if !nsView.overlays.isEmpty {
@@ -405,6 +466,13 @@ struct HeatmapMapView: NSViewRepresentable {
                 let count = heatmapCircle.clusterCount
                 let maxCount = self.lastMaxCount
                 return HeatmapOverlayRenderer(circle: heatmapCircle, count: count, maxCount: maxCount)
+            } else if let polyline = overlay as? MKPolyline {
+                let renderer = MKPolylineRenderer(polyline: polyline)
+                renderer.strokeColor = NSColor(red: 16/255, green: 185/255, blue: 129/255, alpha: 0.85) // Aura Emerald
+                renderer.lineWidth = 3.5
+                renderer.lineCap = .round
+                renderer.lineJoin = .round
+                return renderer
             }
             return MKOverlayRenderer(overlay: overlay)
         }
@@ -479,10 +547,12 @@ struct PhotosHeatmapView: View {
     enum VisualizationMode: String, CaseIterable, Identifiable {
         case points = "Points"
         case heatmap = "Heatmap"
+        case routes = "Routes"
         
         var id: String { rawValue }
     }
     @State private var visualizationMode: VisualizationMode = .heatmap
+    @State private var selectedDevice: String? = nil
     
     enum MapStyleSelection: String, CaseIterable, Identifiable {
         case standard = "Standard"
@@ -674,6 +744,7 @@ struct PhotosHeatmapView: View {
                 // The actual interactive map wrapper
                 HeatmapMapView(
                     clusters: mapClusters,
+                    photos: filteredPhotosForMap,
                     selectedCluster: $selectedCluster,
                     mapType: $mapType,
                     centerTrigger: $centerTrigger,
@@ -862,6 +933,100 @@ struct PhotosHeatmapView: View {
                                         }
                                         .buttonStyle(.plain)
                                         .glassCardHoverEffect(cornerRadius: 6)
+                                    }
+                                }
+                                
+                                Divider().background(Color.white.opacity(0.08))
+                                
+                                // Device Filter Section
+                                VStack(alignment: .leading, spacing: 6) {
+                                    Text("Device Filter")
+                                        .font(.system(size: 8, weight: .bold))
+                                        .foregroundColor(.secondary)
+                                        .textCase(.uppercase)
+                                    
+                                    // All Devices Option
+                                    Button(action: {
+                                        withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
+                                            selectedDevice = nil
+                                        }
+                                    }) {
+                                        HStack(spacing: 8) {
+                                            Image(systemName: "cpu")
+                                                .font(.system(size: 9))
+                                                .foregroundColor(selectedDevice == nil ? .emerald : .secondary)
+                                                .frame(width: 14)
+                                            
+                                            Text("All Devices")
+                                                .font(.system(size: 10, weight: .semibold, design: .rounded))
+                                                .foregroundColor(selectedDevice == nil ? .emerald : .white.opacity(0.95))
+                                                .lineLimit(1)
+                                            
+                                            Spacer()
+                                            
+                                            if selectedDevice == nil {
+                                                Image(systemName: "checkmark")
+                                                    .font(.system(size: 9, weight: .bold))
+                                                    .foregroundColor(.emerald)
+                                            }
+                                        }
+                                        .padding(.horizontal, 10)
+                                        .padding(.vertical, 6)
+                                        .frame(maxWidth: .infinity)
+                                        .background(selectedDevice == nil ? Color.emerald.opacity(0.10) : Color.white.opacity(0.02))
+                                        .cornerRadius(6)
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 6)
+                                                .stroke(selectedDevice == nil ? Color.emerald.opacity(0.3) : Color.clear, lineWidth: 1)
+                                        )
+                                    }
+                                    .buttonStyle(.plain)
+                                    .glassCardHoverEffect(cornerRadius: 6)
+                                    
+                                    if !availableDevices.isEmpty {
+                                        ScrollView(.vertical, showsIndicators: false) {
+                                            VStack(spacing: 4) {
+                                                ForEach(availableDevices, id: \.self) { device in
+                                                    Button(action: {
+                                                        withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
+                                                            selectedDevice = device
+                                                        }
+                                                    }) {
+                                                        HStack(spacing: 8) {
+                                                            Image(systemName: deviceIcon(for: device))
+                                                                .font(.system(size: 9))
+                                                                .foregroundColor(selectedDevice == device ? .emerald : .secondary)
+                                                                .frame(width: 14)
+                                                            
+                                                            Text(device)
+                                                                .font(.system(size: 10, weight: .semibold, design: .rounded))
+                                                                .foregroundColor(selectedDevice == device ? .emerald : .white.opacity(0.95))
+                                                                .lineLimit(1)
+                                                            
+                                                            Spacer()
+                                                            
+                                                            if selectedDevice == device {
+                                                                Image(systemName: "checkmark")
+                                                                    .font(.system(size: 9, weight: .bold))
+                                                                    .foregroundColor(.emerald)
+                                                            }
+                                                        }
+                                                        .padding(.horizontal, 10)
+                                                        .padding(.vertical, 6)
+                                                        .frame(maxWidth: .infinity)
+                                                        .background(selectedDevice == device ? Color.emerald.opacity(0.10) : Color.white.opacity(0.02))
+                                                        .cornerRadius(6)
+                                                        .overlay(
+                                                            RoundedRectangle(cornerRadius: 6)
+                                                                .stroke(selectedDevice == device ? Color.emerald.opacity(0.3) : Color.clear, lineWidth: 1)
+                                                        )
+                                                    }
+                                                    .buttonStyle(.plain)
+                                                    .glassCardHoverEffect(cornerRadius: 6)
+                                                }
+                                            }
+                                        }
+                                        .frame(maxHeight: 100)
                                     }
                                 }
                             }
@@ -1061,15 +1226,47 @@ struct PhotosHeatmapView: View {
     
     // MARK: - Calculations
     
+    private func filterClusters(_ clusters: [MappedCluster]) -> [MappedCluster] {
+        guard let selectedDevice = selectedDevice else { return clusters }
+        return clusters.compactMap { cluster in
+            let filteredPhotos = cluster.photos.filter { $0.cameraModel == selectedDevice }
+            guard !filteredPhotos.isEmpty else { return nil }
+            return MappedCluster(
+                id: cluster.id,
+                cityName: cluster.cityName,
+                countryName: cluster.countryName,
+                coordinate: cluster.coordinate,
+                photos: filteredPhotos
+            )
+        }
+    }
+    
     // Dynamic granularity clusters computed on the map visible span delta
     private var mapClusters: [MappedCluster] {
         let zoom = MapZoomLevel.level(forDelta: currentRegion.span.latitudeDelta)
-        return manager.precomputedMapClusters[zoom] ?? []
+        let rawClusters = manager.precomputedMapClusters[zoom] ?? []
+        return filterClusters(rawClusters)
     }
     
     // Clusters computed on the current filtered photos array (constant city/country-level for sidebar)
     private var clusters: [MappedCluster] {
-        hotspotGrouping == .city ? manager.precomputedCityClusters : manager.precomputedCountryClusters
+        let rawClusters = hotspotGrouping == .city ? manager.precomputedCityClusters : manager.precomputedCountryClusters
+        return filterClusters(rawClusters)
+    }
+    
+    private var filteredPhotosForMap: [Photo] {
+        if let selectedDevice = selectedDevice {
+            return manager.photos.filter { $0.cameraModel == selectedDevice }
+        } else {
+            return manager.photos
+        }
+    }
+    
+    private var availableDevices: [String] {
+        let models = manager.photos
+            .filter { $0.latitude != nil && $0.longitude != nil }
+            .compactMap(\.cameraModel)
+        return Array(Set(models)).sorted()
     }
     
     private var filteredClusters: [MappedCluster] {
@@ -1178,6 +1375,22 @@ struct PhotosHeatmapView: View {
         switch mode {
         case .points: return "circle.circle.fill"
         case .heatmap: return "square.3.stack.3d.middle.filled"
+        case .routes: return "point.topleft.down.to.point.bottomright.curvepath"
+        }
+    }
+    
+    private func deviceIcon(for name: String) -> String {
+        let lower = name.lowercased()
+        if lower.contains("iphone") {
+            return "iphone"
+        } else if lower.contains("gopro") || lower.contains("hero") {
+            return "video.fill"
+        } else if lower.contains("meta") || lower.contains("glasses") || lower.contains("ray-ban") {
+            return "eyeglasses"
+        } else if lower.contains("d5") || lower.contains("nikon") || lower.contains("canon") || lower.contains("sony") || lower.contains("fujifilm") || lower.contains("panasonic") || lower.contains("leica") || lower.contains("hasselblad") {
+            return "camera.aperture"
+        } else {
+            return "camera.fill"
         }
     }
 }
