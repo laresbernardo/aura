@@ -1013,6 +1013,8 @@ struct PhotosHeatmapView: View {
                                                             if let count = devicePhotoCounts[device] {
                                                                 Text("\(count)")
                                                                     .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                                                    .lineLimit(1)
+                                                                    .fixedSize(horizontal: true, vertical: false)
                                                                     .foregroundColor(selectedDevices.contains(device) ? .emerald.opacity(0.85) : .secondary.opacity(0.8))
                                                                     .padding(.horizontal, 5)
                                                                     .padding(.vertical, 1.5)
@@ -1045,8 +1047,8 @@ struct PhotosHeatmapView: View {
                                     }
                                 }
                             }
-                            .padding(10)
-                            .frame(width: 160)
+                             .padding(10)
+                             .frame(width: 220)
                         }
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                     }
@@ -1312,7 +1314,16 @@ struct PhotosHeatmapView: View {
         let models = manager.photos
             .filter { $0.latitude != nil && $0.longitude != nil }
             .compactMap(\.cameraModel)
-        return Array(Set(models)).sorted()
+        let uniqueModels = Array(Set(models))
+        let counts = devicePhotoCounts
+        return uniqueModels.sorted { model1, model2 in
+            let count1 = counts[model1] ?? 0
+            let count2 = counts[model2] ?? 0
+            if count1 != count2 {
+                return count1 > count2 // DESC order by count
+            }
+            return model1 < model2 // Alphabetical fallback
+        }
     }
     
     private var filteredClusters: [MappedCluster] {
