@@ -1085,7 +1085,6 @@ struct NiceDateRangePickerButton: View {
     private func isPresetActive(_ preset: PresetRange) -> Bool {
         let now = Date()
         let calendar = Calendar.current
-        let startOfToday = calendar.startOfDay(for: now)
         let startOfPresetStart = calendar.startOfDay(for: presetStartDate(for: preset, now: now))
         let startOfPresetEnd = calendar.startOfDay(for: presetEndDate(for: preset, now: now))
         
@@ -1295,7 +1294,7 @@ struct NiceDateRangePickerButton: View {
                                         .stroke(startDateText.isEmpty || parseDate(startDateText) != nil ? Color.white.opacity(0.08) : Color.orange.opacity(0.6), lineWidth: 1)
                                 )
                                 .frame(width: 95)
-                                .onChange(of: startDateText) { newValue in
+                                .onChange(of: startDateText) { _, newValue in
                                     if let parsed = parseDate(newValue) {
                                         if parsed > endDate {
                                             endDate = parsed
@@ -1321,7 +1320,7 @@ struct NiceDateRangePickerButton: View {
                                         .stroke(endDateText.isEmpty || parseDate(endDateText) != nil ? Color.white.opacity(0.08) : Color.orange.opacity(0.6), lineWidth: 1)
                                 )
                                 .frame(width: 95)
-                                .onChange(of: endDateText) { newValue in
+                                .onChange(of: endDateText) { _, newValue in
                                     if let parsed = parseDate(newValue) {
                                         if parsed < startDate {
                                             startDate = parsed
@@ -1447,9 +1446,9 @@ struct NiceDateRangePickerButton: View {
                                                 .stroke(startDateText.isEmpty || parseDate(startDateText) != nil ? Color.white.opacity(0.08) : Color.orange.opacity(0.6), lineWidth: 1)
                                         )
                                         .frame(width: 105)
-                                        .onChange(of: startDateText) { newValue in
-                                            if let parsed = parseDate(newValue) {
-                                                if parsed > endDate {
+                                        .onChange(of: startDateText) { _, newValue in
+                                    if let parsed = parseDate(newValue) {
+                                        if parsed > endDate {
                                                     endDate = parsed
                                                 }
                                                 startDate = parsed
@@ -1480,9 +1479,9 @@ struct NiceDateRangePickerButton: View {
                                                 .stroke(endDateText.isEmpty || parseDate(endDateText) != nil ? Color.white.opacity(0.08) : Color.orange.opacity(0.6), lineWidth: 1)
                                         )
                                         .frame(width: 105)
-                                        .onChange(of: endDateText) { newValue in
-                                            if let parsed = parseDate(newValue) {
-                                                if parsed < startDate {
+                                        .onChange(of: endDateText) { _, newValue in
+                                    if let parsed = parseDate(newValue) {
+                                        if parsed < startDate {
                                                     startDate = parsed
                                                 }
                                                 endDate = parsed
@@ -1651,10 +1650,10 @@ struct NiceDateRangePickerButton: View {
                 startDateText = formattedDate(startDate)
                 endDateText = formattedDate(endDate)
             }
-            .onChange(of: startDate) { newDate in
+            .onChange(of: startDate) { _, newDate in
                 startDateText = formattedDate(newDate)
             }
-            .onChange(of: endDate) { newDate in
+            .onChange(of: endDate) { _, newDate in
                 endDateText = formattedDate(newDate)
             }
         }
