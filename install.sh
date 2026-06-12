@@ -83,6 +83,7 @@ sleep 1
 swiftc -O -sdk "$SDK_PATH" \
     -o "$APP_BUNDLE/Contents/MacOS/Aura" \
     "$SRC_STAGING/AuraApp/Models.swift" \
+    "$SRC_STAGING/AuraApp/ArtistResolver.swift" \
     "$SRC_STAGING/AuraApp/MusicLibraryManager.swift" \
     "$SRC_STAGING/AuraApp/PhotosLibraryManager.swift" \
     "$SRC_STAGING/AuraApp/GlassCard.swift" \

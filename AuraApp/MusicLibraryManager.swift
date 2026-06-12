@@ -892,7 +892,9 @@ class MusicLibraryManager: ObservableObject {
         
         var artistPlays: [String: Int] = [:]
         for track in tracks {
-            artistPlays[track.artist, default: 0] += track.playCount
+            for artist in ArtistResolver.resolve(track.artist) {
+                artistPlays[artist, default: 0] += track.playCount
+            }
         }
         let topArtist = artistPlays.max(by: { $0.value < $1.value })?.key ?? "No Music"
         
@@ -1073,7 +1075,9 @@ class MusicLibraryManager: ObservableObject {
         
         var artistTracks: [String: [Track]] = [:]
         for track in tracks {
-            artistTracks[track.artist, default: []].append(track)
+            for artist in ArtistResolver.resolve(track.artist) {
+                artistTracks[artist, default: []].append(track)
+            }
         }
         let topArtistsDetailed = artistTracks.map { artist, tracks -> ArtistStat in
             let trackCount = tracks.count
@@ -1097,7 +1101,9 @@ class MusicLibraryManager: ObservableObject {
             let totalPlays = Double(tracks.reduce(0) { $0 + $1.playCount })
             var artistPlays: [String: Int] = [:]
             for track in tracks {
-                artistPlays[track.artist, default: 0] += track.playCount
+                for artist in ArtistResolver.resolve(track.artist) {
+                    artistPlays[artist, default: 0] += track.playCount
+                }
             }
             let topArtistPlayCount = Double(artistPlays.values.max() ?? 0)
             let focus = totalPlays > 0 ? (topArtistPlayCount / totalPlays) * 100.0 : 0.0
