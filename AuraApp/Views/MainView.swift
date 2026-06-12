@@ -1562,7 +1562,8 @@ struct NiceDateRangePickerButton: View {
                                     )
                                     .datePickerStyle(.graphical)
                                     .labelsHidden()
-                                    .frame(width: 240, height: 195)
+                                    .scaleEffect(1.12)
+                                    .frame(width: 270, height: 220)
                                 }
                                 
                                 VerticalDivider()
@@ -1632,7 +1633,8 @@ struct NiceDateRangePickerButton: View {
                                     )
                                     .datePickerStyle(.graphical)
                                     .labelsHidden()
-                                    .frame(width: 240, height: 195)
+                                    .scaleEffect(1.12)
+                                    .frame(width: 270, height: 220)
                                 }
                             }
                         }
@@ -1640,7 +1642,7 @@ struct NiceDateRangePickerButton: View {
                     }
                     .padding(.horizontal, 16)
                     .padding(.bottom, 12)
-                    .frame(width: 670, height: 290)
+                    .frame(width: 730, height: 320)
                 }
             }
             .tint(tintColor)

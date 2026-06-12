@@ -5,6 +5,15 @@ struct ArtistHallView: View {
     @ObservedObject var manager: MusicLibraryManager
     @State private var showAllArtists = false
     
+    enum ComparisonMetric: String, CaseIterable, Identifiable {
+        case time = "Listening Time"
+        case counter = "Play Count"
+        
+        var id: Self { self }
+    }
+    
+    @State private var comparisonMetric: ComparisonMetric = .time
+    
     var body: some View {
         ScrollView(.vertical, showsIndicators: false) {
             VStack(alignment: .leading, spacing: 28) {
@@ -32,61 +41,80 @@ struct ArtistHallView: View {
                         .frame(height: 200)
                     }
                 } else {
-                    let top5 = Array(manager.topArtistsDetailed.prefix(5))
+                    let top25 = Array(manager.topArtistsDetailed.prefix(25))
                     let displayedArtists = showAllArtists ? Array(manager.topArtistsDetailed.prefix(12)) : Array(manager.topArtistsDetailed.prefix(4))
                     
                     // MARK: - Playback Volume Comparison Chart
                     GlassCard {
                         VStack(alignment: .leading, spacing: 18) {
-                            VStack(alignment: .leading, spacing: 4) {
-                                HStack {
-                                    Image(systemName: "music.mic")
-                                        .foregroundColor(.purple)
-                                    Text("Playback Volume Comparison")
-                                        .font(.headline)
-                                        .foregroundColor(.white)
+                            HStack(alignment: .top) {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    HStack {
+                                        Image(systemName: "music.mic")
+                                            .foregroundColor(.purple)
+                                        Text("Playback Volume Comparison")
+                                            .font(.headline)
+                                            .foregroundColor(.white)
+                                    }
+                                    Text(comparisonMetric == .time ? "Total listening time across your top artists" : "Total play counts across your top artists")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
                                 }
-                                Text("Total play counts across your top artists")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
+                                
+                                Spacer()
+                                
+                                Picker("", selection: $comparisonMetric) {
+                                    ForEach(ComparisonMetric.allCases) { metric in
+                                        Text(metric.rawValue).tag(metric)
+                                    }
+                                }
+                                .pickerStyle(.segmented)
+                                .frame(width: 200)
                             }
                             
-                            Chart(top5) { stat in
-                                BarMark(
-                                    x: .value("Plays", stat.totalPlays),
-                                    y: .value("Artist", stat.artist)
-                                )
-                                .foregroundStyle(
-                                    LinearGradient(
-                                        colors: [.purple.opacity(0.9), .pink.opacity(0.4)],
-                                        startPoint: .leading,
-                                        endPoint: .trailing
+                            ScrollView(.vertical, showsIndicators: true) {
+                                Chart(top25) { stat in
+                                    BarMark(
+                                        x: .value(
+                                            comparisonMetric == .time ? "Hours" : "Plays",
+                                            comparisonMetric == .time ? (Double(stat.totalPlays) * 210.0 / 3600.0) : Double(stat.totalPlays)
+                                        ),
+                                        y: .value("Artist", stat.artist)
                                     )
-                                )
-                                .cornerRadius(5)
-                                .annotation(position: .trailing) {
-                                    Text("\(stat.totalPlays.formatted()) plays")
-                                        .font(.system(.caption2, design: .monospaced))
-                                        .fontWeight(.semibold)
-                                        .foregroundColor(.white.opacity(0.85))
+                                    .foregroundStyle(
+                                        LinearGradient(
+                                            colors: [.purple.opacity(0.9), .pink.opacity(0.4)],
+                                            startPoint: .leading,
+                                            endPoint: .trailing
+                                        )
+                                    )
+                                    .cornerRadius(5)
+                                    .annotation(position: .trailing) {
+                                        Text(comparisonMetric == .time ? stat.totalListeningTimeFormatted : "\(stat.totalPlays.formatted()) plays")
+                                            .font(.system(.caption2, design: .monospaced))
+                                            .fontWeight(.semibold)
+                                            .foregroundColor(.white.opacity(0.85))
+                                    }
                                 }
-                            }
-                            .chartYAxis {
-                                AxisMarks { value in
-                                    AxisValueLabel()
-                                        .foregroundStyle(.white.opacity(0.85))
-                                        .font(.system(size: 11, weight: .semibold, design: .rounded))
+                                .chartYAxis {
+                                    AxisMarks { value in
+                                        AxisValueLabel()
+                                            .foregroundStyle(.white.opacity(0.85))
+                                            .font(.system(size: 11, weight: .semibold, design: .rounded))
+                                    }
                                 }
-                            }
-                            .chartXAxis {
-                                AxisMarks { value in
-                                    AxisGridLine().foregroundStyle(Color.white.opacity(0.05))
-                                    AxisValueLabel()
-                                        .foregroundStyle(.secondary)
-                                        .font(.system(size: 9, design: .monospaced))
+                                .chartXAxis {
+                                    AxisMarks { value in
+                                        AxisGridLine().foregroundStyle(Color.white.opacity(0.05))
+                                        AxisValueLabel()
+                                            .foregroundStyle(.secondary)
+                                            .font(.system(size: 9, design: .monospaced))
+                                    }
                                 }
+                                .frame(height: CGFloat(top25.count) * 45.0)
+                                .padding(.trailing, 16)
                             }
-                            .frame(height: 220)
+                            .frame(height: min(350, CGFloat(top25.count) * 45.0))
                             .padding(.vertical, 10)
                         }
                         .padding(24)
