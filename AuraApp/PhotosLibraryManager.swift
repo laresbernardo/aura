@@ -557,16 +557,15 @@ class PhotosLibraryManager: ObservableObject {
                     do {
                         try await Task.sleep(nanoseconds: 800_000_000) // 0.8 seconds
                         let location = CLLocation(latitude: lat, longitude: lon)
-                        if let request = MKReverseGeocodingRequest(location: location) {
-                            let mapItems = try await request.mapItems
-                            if let representations = mapItems.first?.addressRepresentations {
-                                city = representations.cityName ?? "Unknown City"
-                                country = representations.regionName ?? "Unknown Country"
-                                
-                                cache[key] = ["city": city, "country": country]
-                                updated = true
-                                found = true
-                            }
+                        let geocoder = CLGeocoder()
+                        let placemarks = try await geocoder.reverseGeocodeLocation(location)
+                        if let placemark = placemarks.first {
+                            city = placemark.locality ?? "Unknown City"
+                            country = placemark.country ?? "Unknown Country"
+                            
+                            cache[key] = ["city": city, "country": country]
+                            updated = true
+                            found = true
                         }
                     } catch {
                         // Sleep a bit longer if we hit a rate limit, then continue
