@@ -5,6 +5,7 @@ struct ArtistHallView: View {
     @ObservedObject var manager: MusicLibraryManager
     @State private var showAllArtists = false
     @State private var searchQuery = ""
+    @State private var visibleChartArtistsCount = 5
     
     enum ComparisonMetric: String, CaseIterable, Identifiable {
         case time = "Listening Time"
@@ -126,7 +127,7 @@ struct ArtistHallView: View {
                         }
                         .transition(.opacity)
                     } else {
-                        let chartArtists = Array(filteredArtists.prefix(25))
+                        let chartArtists = Array(filteredArtists.prefix(visibleChartArtistsCount))
                         let displayedArtists = searchQuery.isEmpty
                             ? (showAllArtists ? Array(filteredArtists.prefix(12)) : Array(filteredArtists.prefix(4)))
                             : filteredArtists
@@ -144,8 +145,8 @@ struct ArtistHallView: View {
                                                 .foregroundColor(.white)
                                         }
                                         Text(comparisonMetric == .time 
-                                             ? (searchQuery.isEmpty ? "Total listening time across your top artists" : "Total listening time for matches (top 25 shown)")
-                                             : (searchQuery.isEmpty ? "Total play counts across your top artists" : "Total play counts for matches (top 25 shown)"))
+                                             ? (searchQuery.isEmpty ? "Total listening time across your top artists" : "Total listening time for matches")
+                                             : (searchQuery.isEmpty ? "Total play counts across your top artists" : "Total play counts for matches"))
                                             .font(.caption)
                                             .foregroundColor(.secondary)
                                     }
@@ -205,6 +206,62 @@ struct ArtistHallView: View {
                                 }
                                 .frame(height: max(100, min(350, CGFloat(chartArtists.count) * 45.0)))
                                 .padding(.vertical, 10)
+                                
+                                // Chart Pagination Controls
+                                if filteredArtists.count > 5 {
+                                    Divider().background(Color.white.opacity(0.06))
+                                    
+                                    HStack(spacing: 16) {
+                                        if visibleChartArtistsCount > 5 {
+                                            Button(action: {
+                                                withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                                                    visibleChartArtistsCount = max(5, visibleChartArtistsCount - 5)
+                                                }
+                                            }) {
+                                                HStack(spacing: 6) {
+                                                    Image(systemName: "minus.circle")
+                                                    Text("Show Less")
+                                                }
+                                                .font(.system(.subheadline, design: .rounded))
+                                                .fontWeight(.semibold)
+                                                .foregroundColor(.purple)
+                                                .padding(.horizontal, 14)
+                                                .padding(.vertical, 8)
+                                                .background(Capsule().fill(Color.white.opacity(0.05)))
+                                                .overlay(Capsule().stroke(Color.white.opacity(0.08), lineWidth: 1))
+                                            }
+                                            .buttonStyle(.plain)
+                                        }
+                                        
+                                        if visibleChartArtistsCount < filteredArtists.count {
+                                            Button(action: {
+                                                withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                                                    visibleChartArtistsCount = min(filteredArtists.count, visibleChartArtistsCount + 5)
+                                                }
+                                            }) {
+                                                HStack(spacing: 6) {
+                                                    Image(systemName: "plus.circle")
+                                                    Text("Show More (+5)")
+                                                }
+                                                .font(.system(.subheadline, design: .rounded))
+                                                .fontWeight(.semibold)
+                                                .foregroundColor(.purple)
+                                                .padding(.horizontal, 14)
+                                                .padding(.vertical, 8)
+                                                .background(Capsule().fill(Color.white.opacity(0.05)))
+                                                .overlay(Capsule().stroke(Color.white.opacity(0.08), lineWidth: 1))
+                                            }
+                                            .buttonStyle(.plain)
+                                        }
+                                        
+                                        Spacer()
+                                        
+                                        Text("Showing \(chartArtists.count) of \(filteredArtists.count) artists")
+                                            .font(.system(.caption, design: .rounded))
+                                            .foregroundColor(.secondary)
+                                    }
+                                    .padding(.top, 8)
+                                }
                             }
                             .padding(24)
                         }
@@ -260,6 +317,9 @@ struct ArtistHallView: View {
             }
             .padding(4)
         }
+        .onChange(of: searchQuery) { newValue in
+            visibleChartArtistsCount = 5
+        }
     }
 }
 
@@ -267,6 +327,7 @@ struct ArtistProfileCard: View {
     let stat: ArtistStat
     @ObservedObject var manager: MusicLibraryManager
     @State private var isHovered = false
+    @State private var hoveredTrackId: UUID? = nil
     
     var body: some View {
         GlassCard(cornerRadius: 16, shadowRadius: 10) {
@@ -369,6 +430,93 @@ struct ArtistProfileCard: View {
                 }
                 .frame(height: 6)
                 .padding(.top, 4)
+                
+                // Detailed Songs Sub-section
+                let artistTracks = manager.tracks
+                    .filter { track in
+                        ArtistResolver.resolve(track.artist)
+                            .contains(where: { resolvedArtist in
+                                resolvedArtist.localizedCaseInsensitiveCompare(stat.artist) == .orderedSame
+                            })
+                    }
+                    .sorted(by: { $0.playCount > $1.playCount })
+                
+                if !artistTracks.isEmpty {
+                    Divider().background(Color.white.opacity(0.06))
+                    
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Top Tracks (Click to Play)")
+                            .font(.system(.caption, design: .rounded))
+                            .fontWeight(.bold)
+                            .foregroundColor(.purple)
+                            .padding(.bottom, 2)
+                        
+                        let displayTracks = Array(artistTracks.prefix(3))
+                        let maxPlays = displayTracks.first?.playCount ?? 1
+                        
+                        ForEach(Array(displayTracks.enumerated()), id: \.element.id) { index, track in
+                            HStack(spacing: 8) {
+                                // Rank
+                                Text("#\(index + 1)")
+                                    .font(.system(.caption2, design: .rounded))
+                                    .fontWeight(.bold)
+                                    .foregroundColor(.purple.opacity(0.8))
+                                    .frame(width: 18, alignment: .leading)
+                                
+                                VStack(alignment: .leading, spacing: 4) {
+                                    // Clickable Title
+                                    Button(action: {
+                                        Task {
+                                            await manager.revealTrackInMusicApp(name: track.name, artist: track.artist)
+                                        }
+                                    }) {
+                                        Text(track.name)
+                                            .font(.system(.caption, design: .rounded))
+                                            .fontWeight(.semibold)
+                                            .foregroundColor(hoveredTrackId == track.id ? .purple : .white)
+                                            .lineLimit(1)
+                                            .multilineTextAlignment(.leading)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .onHover { isHovering in
+                                        hoveredTrackId = isHovering ? track.id : nil
+                                    }
+                                    
+                                    // Mini Ranked Progress Bar
+                                    GeometryReader { barGeo in
+                                        let ratio = CGFloat(track.playCount) / CGFloat(max(1, maxPlays))
+                                        ZStack(alignment: .leading) {
+                                            Capsule()
+                                                .fill(Color.white.opacity(0.04))
+                                                .frame(height: 4)
+                                            Capsule()
+                                                .fill(LinearGradient(colors: [.purple.opacity(0.7), .pink.opacity(0.5)], startPoint: .leading, endPoint: .trailing))
+                                                .frame(width: barGeo.size.width * ratio, height: 4)
+                                        }
+                                    }
+                                    .frame(height: 4)
+                                }
+                                
+                                Spacer(minLength: 8)
+                                
+                                // Plays / Time info
+                                VStack(alignment: .trailing, spacing: 1) {
+                                    Text("\(track.playCount) plays")
+                                        .font(.system(.caption2, design: .monospaced))
+                                        .fontWeight(.semibold)
+                                        .foregroundColor(.white.opacity(0.8))
+                                    
+                                    // Est. duration
+                                    let mins = Int(Double(track.playCount) * 210.0 / 60.0)
+                                    Text("\(mins)m")
+                                        .font(.system(.caption2, design: .monospaced))
+                                        .foregroundColor(.secondary)
+                                }
+                            }
+                        }
+                    }
+                    .transition(.opacity)
+                }
             }
             .padding(20)
         }
@@ -379,6 +527,6 @@ struct ArtistProfileCard: View {
                 await manager.filterArtistInMusicApp(artist: stat.artist)
             }
         }
-        .help("Click to filter \(stat.artist) in macOS Music")
+        .help("Click card to view artist in macOS Music, or track title to play")
     }
 }
