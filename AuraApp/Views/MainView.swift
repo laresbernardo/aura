@@ -9,8 +9,8 @@ enum AppMode: String, CaseIterable, Identifiable {
 
 enum MusicTab: String, CaseIterable {
     case overview = "Overview"
-    case habits = "Listening Habits"
     case artists = "Artist Hall"
+    case habits = "Listening Habits"
     case persona = "Aura Profile"
     case temporal = "Sonic Rhythms"
     case timeMachine = "Time Machine"
