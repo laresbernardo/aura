@@ -135,6 +135,16 @@ struct HeatmapMapView: NSViewRepresentable {
     @Binding var userPreferredSpan: MKCoordinateSpan
     @Binding var isPlaybackPlaying: Bool
     
+    func hideAttribution(_ view: NSView) {
+        for subview in view.subviews {
+            let className = String(describing: type(of: subview))
+            if className.contains("Attribution") || className.contains("Legal") {
+                subview.isHidden = true
+            }
+            hideAttribution(subview)
+        }
+    }
+    
     func makeNSView(context: Context) -> MKMapView {
         let mapView = MKMapView()
         mapView.delegate = context.coordinator
@@ -145,10 +155,12 @@ struct HeatmapMapView: NSViewRepresentable {
         mapView.isRotateEnabled = true
         mapView.mapType = mapType
         mapView.setRegion(currentRegion, animated: false)
+        hideAttribution(mapView)
         return mapView
     }
     
     func updateNSView(_ nsView: MKMapView, context: Context) {
+        hideAttribution(nsView)
         context.coordinator.parent = self
         nsView.mapType = mapType
         
@@ -598,6 +610,7 @@ struct HeatmapMapView: NSViewRepresentable {
         }
         
         func mapView(_ mapView: MKMapView, regionDidChangeAnimated animated: Bool) {
+            self.parent.hideAttribution(mapView)
             DispatchQueue.main.async {
                 self.parent.currentRegion = mapView.region
                 if !self.parent.isPlaybackPlaying {
@@ -908,35 +921,6 @@ struct PhotosHeatmapView: View {
                     .buttonStyle(.plain)
                     .glassCardHoverEffect(cornerRadius: 8)
                     
-                    // Time Tour Toggle Button
-                    Button(action: {
-                        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                            if isPlaybackActive {
-                                closeTour()
-                            } else {
-                                initializeTour()
-                            }
-                        }
-                    }) {
-                        HStack(spacing: 6) {
-                            Image(systemName: isPlaybackActive ? "clock.arrow.circlepath" : "play.circle.fill")
-                                .font(.system(size: 11, weight: .bold))
-                            Text(isPlaybackActive ? "Exit Tour" : "Time Tour")
-                                .font(.system(size: 10, weight: .bold, design: .rounded))
-                        }
-                        .foregroundColor(isPlaybackActive ? .emerald : .white)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 7)
-                        .background(isPlaybackActive ? Color.emerald.opacity(0.15) : Color.black.opacity(0.4))
-                        .cornerRadius(8)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8)
-                                .stroke(isPlaybackActive ? Color.emerald.opacity(0.5) : Color.clear, lineWidth: 1)
-                        )
-                    }
-                    .buttonStyle(.plain)
-                    .glassCardHoverEffect(cornerRadius: 8)
-                    
                     Spacer()
                     
                     // Zoom Controllers
@@ -984,20 +968,39 @@ struct PhotosHeatmapView: View {
                 // Date Range Note - Top Centered
                 if !visiblePhotos.isEmpty {
                     GlassCard(cornerRadius: 8, shadowRadius: 4, borderColor: Color.white.opacity(0.08), backgroundColor: Color.black.opacity(0.3)) {
-                        HStack(spacing: 6) {
+                        HStack(spacing: 8) {
                             Image(systemName: "calendar")
                                 .font(.system(size: 9))
                                 .foregroundColor(.secondary)
                             Text(visiblePhotosDateRange)
                                 .font(.system(size: 9.5, weight: .semibold, design: .rounded))
                                 .foregroundColor(.white.opacity(0.85))
+                            
+                            Button(action: {
+                                let photos = visiblePhotos
+                                guard !photos.isEmpty else { return }
+                                let dates = photos.map(\.dateAdded)
+                                if let minTime = dates.min(), let maxTime = dates.max() {
+                                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                                        manager.customStartDate = Date(timeIntervalSince1970: minTime)
+                                        manager.customEndDate = Date(timeIntervalSince1970: maxTime)
+                                        manager.currentFilter = .customRange
+                                        manager.applyFilter()
+                                    }
+                                }
+                            }) {
+                                Image(systemName: "line.3.horizontal.decrease.circle.fill")
+                                    .font(.system(size: 10, weight: .bold))
+                                    .foregroundColor(.emerald)
+                            }
+                            .buttonStyle(.plain)
+                            .help("Set visible date range as active filter")
                         }
                         .padding(.horizontal, 10)
                         .padding(.vertical, 5)
                     }
                     .padding(.top, 16)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                    .allowsHitTesting(false)
                     .transition(.asymmetric(
                         insertion: .opacity.combined(with: .move(edge: .top)),
                         removal: .opacity.combined(with: .move(edge: .top))
@@ -1252,6 +1255,39 @@ struct PhotosHeatmapView: View {
                 }
                 .padding(16)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                
+                // Floating Time Tour Button in Bottom-Left
+                Button(action: {
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                        if isPlaybackActive {
+                            closeTour()
+                        } else {
+                            initializeTour()
+                        }
+                    }
+                }) {
+                    HStack(spacing: 6) {
+                        Image(systemName: isPlaybackActive ? "clock.arrow.circlepath" : "play.circle.fill")
+                            .font(.system(size: 11, weight: .bold))
+                        Text(isPlaybackActive ? "Exit Tour" : "Time Tour")
+                            .font(.system(size: 10, weight: .bold, design: .rounded))
+                    }
+                    .foregroundColor(isPlaybackActive ? .emerald : .white)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 7)
+                    .background(isPlaybackActive ? Color.emerald.opacity(0.15) : Color.black.opacity(0.4))
+                    .cornerRadius(8)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(isPlaybackActive ? Color.emerald.opacity(0.5) : Color.clear, lineWidth: 1)
+                    )
+                }
+                .buttonStyle(.plain)
+                .glassCardHoverEffect(cornerRadius: 8)
+                .padding(.bottom, 16)
+                .padding(.leading, selectedCluster != nil ? 322 : 16)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                .animation(.spring(response: 0.35, dampingFraction: 0.85), value: selectedCluster)
                 
                 // Floating Details Popup in Bottom-Left
                 if let cluster = selectedCluster {
