@@ -131,6 +131,9 @@ struct HeatmapMapView: NSViewRepresentable {
     @Binding var centerTrigger: MKCoordinateRegion?
     @Binding var currentRegion: MKCoordinateRegion
     let visualizationMode: PhotosHeatmapView.VisualizationMode
+    let isPlaybackActive: Bool
+    @Binding var userPreferredSpan: MKCoordinateSpan
+    @Binding var isPlaybackPlaying: Bool
     
     func makeNSView(context: Context) -> MKMapView {
         let mapView = MKMapView()
@@ -163,7 +166,7 @@ struct HeatmapMapView: NSViewRepresentable {
             nsView.removeAnnotations(nsView.annotations)
         }
         
-        // 1. Sync Annotations
+        // 1. Sync Annotations via optimized diffing to prevent flickering
         let existingAnnotations = nsView.annotations.compactMap { $0 as? PhotoClusterAnnotation }
         let newAnnotations = clusters.map { cluster in
             PhotoClusterAnnotation(
@@ -177,10 +180,31 @@ struct HeatmapMapView: NSViewRepresentable {
         let existingKeys = Set(existingAnnotations.map { $0.cluster.id })
         let newKeys = Set(newAnnotations.map { $0.cluster.id })
         
-        // Re-draw annotations only if clusters changed or count in clusters changed
         if existingKeys != newKeys || existingAnnotations.map({ $0.cluster.count }) != newAnnotations.map({ $0.cluster.count }) {
-            nsView.removeAnnotations(nsView.annotations)
-            nsView.addAnnotations(newAnnotations)
+            let toRemove = existingAnnotations.filter { !newKeys.contains($0.cluster.id) }
+            if !toRemove.isEmpty {
+                nsView.removeAnnotations(toRemove)
+            }
+            
+            let toAdd = newAnnotations.filter { !existingKeys.contains($0.cluster.id) }
+            if !toAdd.isEmpty {
+                nsView.addAnnotations(toAdd)
+            }
+            
+            let toUpdate = newAnnotations.filter { ann in
+                if let existing = existingAnnotations.first(where: { $0.cluster.id == ann.cluster.id }) {
+                    return existing.cluster.count != ann.cluster.count
+                }
+                return false
+            }
+            
+            if !toUpdate.isEmpty {
+                let toRemoveForUpdate = existingAnnotations.filter { ext in
+                    toUpdate.contains(where: { $0.cluster.id == ext.cluster.id })
+                }
+                nsView.removeAnnotations(toRemoveForUpdate)
+                nsView.addAnnotations(toUpdate)
+            }
         }
         
         // 1b. Sync Overlays
@@ -286,7 +310,32 @@ struct HeatmapMapView: NSViewRepresentable {
         
         // 2. Center/Zoom Trigger
         if let targetRegion = centerTrigger {
-            nsView.setRegion(targetRegion, animated: true)
+            let oldCenter = nsView.centerCoordinate
+            let newCenter = targetRegion.center
+            let latDistance = abs(oldCenter.latitude - newCenter.latitude)
+            let lonDistance = abs(oldCenter.longitude - newCenter.longitude)
+            
+            // Only perform two-step flyover zoom if the distance is very large (> 15 degrees) and playback is active
+            if (latDistance > 15.0 || lonDistance > 15.0) && isPlaybackActive {
+                let midLat = (oldCenter.latitude + newCenter.latitude) / 2.0
+                let midLon = (oldCenter.longitude + newCenter.longitude) / 2.0
+                let midCenter = CLLocationCoordinate2D(latitude: midLat, longitude: midLon)
+                
+                let wideSpan = MKCoordinateSpan(
+                    latitudeDelta: min(179.0, max(latDistance * 1.8, 35.0)),
+                    longitudeDelta: min(360.0, max(lonDistance * 1.8, 35.0))
+                )
+                let wideRegion = MKCoordinateRegion(center: midCenter, span: wideSpan)
+                
+                nsView.setRegion(wideRegion, animated: true)
+                
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
+                    nsView.setRegion(targetRegion, animated: true)
+                }
+            } else {
+                nsView.setRegion(targetRegion, animated: true)
+            }
+            
             DispatchQueue.main.async {
                 self.centerTrigger = nil
             }
@@ -317,6 +366,57 @@ struct HeatmapMapView: NSViewRepresentable {
         
         init(_ parent: HeatmapMapView) {
             self.parent = parent
+        }
+        
+        func mapView(_ mapView: MKMapView, didAdd views: [MKAnnotationView]) {
+            guard parent.isPlaybackActive else { return }
+            for view in views {
+                guard view.annotation is PhotoClusterAnnotation else { continue }
+                if let backing = view.subviews.first {
+                    backing.layer?.anchorPoint = CGPoint(x: 0.5, y: 0.5)
+                    
+                    // 1. Overshooting spring pop animation (scales up to 1.3 then springs back to 1.0)
+                    let popAnim = CASpringAnimation(keyPath: "transform.scale")
+                    popAnim.fromValue = 0.1
+                    popAnim.toValue = 1.0
+                    popAnim.damping = 10     // Springier
+                    popAnim.stiffness = 140
+                    popAnim.mass = 0.8
+                    popAnim.duration = popAnim.settlingDuration
+                    backing.layer?.add(popAnim, forKey: "pop_spring")
+                    
+                    // 2. High-visibility transient radar pulse ring
+                    let pulseLayer = CALayer()
+                    pulseLayer.frame = backing.bounds
+                    pulseLayer.cornerRadius = backing.bounds.width / 2.0
+                    pulseLayer.borderColor = NSColor.systemCyan.cgColor
+                    pulseLayer.borderWidth = 2.0
+                    pulseLayer.backgroundColor = NSColor.systemCyan.withAlphaComponent(0.25).cgColor
+                    
+                    backing.layer?.addSublayer(pulseLayer)
+                    
+                    let scaleAnim = CABasicAnimation(keyPath: "transform.scale")
+                    scaleAnim.fromValue = 1.0
+                    scaleAnim.toValue = 5.0  // Expand to 5x size
+                    
+                    let opacityAnim = CABasicAnimation(keyPath: "opacity")
+                    opacityAnim.fromValue = 1.0
+                    opacityAnim.toValue = 0.0
+                    
+                    let animGroup = CAAnimationGroup()
+                    animGroup.animations = [scaleAnim, opacityAnim]
+                    animGroup.duration = 0.9
+                    animGroup.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                    animGroup.isRemovedOnCompletion = true
+                    
+                    pulseLayer.add(animGroup, forKey: "radar_pulse")
+                    
+                    // Remove transient pulse layer after animation finishes
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) {
+                        pulseLayer.removeFromSuperlayer()
+                    }
+                }
+            }
         }
         
         func mapView(_ mapView: MKMapView, viewFor annotation: MKAnnotation) -> MKAnnotationView? {
@@ -468,8 +568,8 @@ struct HeatmapMapView: NSViewRepresentable {
                 return HeatmapOverlayRenderer(circle: heatmapCircle, count: count, maxCount: maxCount)
             } else if let polyline = overlay as? MKPolyline {
                 let renderer = MKPolylineRenderer(polyline: polyline)
-                renderer.strokeColor = NSColor(red: 16/255, green: 185/255, blue: 129/255, alpha: 0.6) // Aura Emerald, thinner and translucent
-                renderer.lineWidth = 1.5
+                renderer.strokeColor = NSColor.systemCyan.withAlphaComponent(0.85) // Glowing Electric Cyan
+                renderer.lineWidth = 2.5
                 renderer.lineCap = .round
                 renderer.lineJoin = .round
                 return renderer
@@ -500,6 +600,9 @@ struct HeatmapMapView: NSViewRepresentable {
         func mapView(_ mapView: MKMapView, regionDidChangeAnimated animated: Bool) {
             DispatchQueue.main.async {
                 self.parent.currentRegion = mapView.region
+                if !self.parent.isPlaybackPlaying {
+                    self.parent.userPreferredSpan = mapView.region.span
+                }
             }
         }
     }
@@ -553,6 +656,18 @@ struct PhotosHeatmapView: View {
     }
     @State private var visualizationMode: VisualizationMode = .heatmap
     @State private var selectedDevices: Set<String> = []
+    
+    // MARK: - Playback and Animation State
+    @State private var isPlaybackActive: Bool = false
+    @State private var isPlaybackPlaying: Bool = false
+    @State private var currentPhotoIndex: Int = 1
+    @State private var currentPhotoIndexDouble: Double = 1.0
+    @State private var playbackDuration: Double = 10.0
+    @State private var autoPanEnabled: Bool = true
+    @State private var playbackTimer: Timer? = nil
+    @State private var lastCenteredCoordinate: CLLocationCoordinate2D? = nil
+    @State private var userPreferredSpan = MKCoordinateSpan(latitudeDelta: 0.15, longitudeDelta: 0.15)
+    @State private var previousVisualizationMode: VisualizationMode? = nil
     
     enum MapStyleSelection: String, CaseIterable, Identifiable {
         case standard = "Standard"
@@ -744,12 +859,15 @@ struct PhotosHeatmapView: View {
                 // The actual interactive map wrapper
                 HeatmapMapView(
                     clusters: mapClusters,
-                    photos: filteredPhotosForMap,
+                    photos: playbackPhotos,
                     selectedCluster: $selectedCluster,
                     mapType: $mapType,
                     centerTrigger: $centerTrigger,
                     currentRegion: $currentRegion,
-                    visualizationMode: visualizationMode
+                    visualizationMode: visualizationMode,
+                    isPlaybackActive: isPlaybackActive,
+                    userPreferredSpan: $userPreferredSpan,
+                    isPlaybackPlaying: $isPlaybackPlaying
                 )
                 .cornerRadius(16)
                 .overlay(
@@ -768,7 +886,7 @@ struct PhotosHeatmapView: View {
                 }
                 
                 // Top HUD: Sidebar toggle on the left, Zoom controls on the right (perfectly aligned)
-                HStack(alignment: .center) {
+                HStack(alignment: .center, spacing: 10) {
                     // Places Toggle Button
                     Button(action: {
                         withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
@@ -786,6 +904,35 @@ struct PhotosHeatmapView: View {
                         .padding(.vertical, 7)
                         .background(Color.black.opacity(0.4))
                         .cornerRadius(8)
+                    }
+                    .buttonStyle(.plain)
+                    .glassCardHoverEffect(cornerRadius: 8)
+                    
+                    // Time Tour Toggle Button
+                    Button(action: {
+                        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                            if isPlaybackActive {
+                                closeTour()
+                            } else {
+                                initializeTour()
+                            }
+                        }
+                    }) {
+                        HStack(spacing: 6) {
+                            Image(systemName: isPlaybackActive ? "clock.arrow.circlepath" : "play.circle.fill")
+                                .font(.system(size: 11, weight: .bold))
+                            Text(isPlaybackActive ? "Exit Tour" : "Time Tour")
+                                .font(.system(size: 10, weight: .bold, design: .rounded))
+                        }
+                        .foregroundColor(isPlaybackActive ? .emerald : .white)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 7)
+                        .background(isPlaybackActive ? Color.emerald.opacity(0.15) : Color.black.opacity(0.4))
+                        .cornerRadius(8)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(isPlaybackActive ? Color.emerald.opacity(0.5) : Color.clear, lineWidth: 1)
+                        )
                     }
                     .buttonStyle(.plain)
                     .glassCardHoverEffect(cornerRadius: 8)
@@ -1243,6 +1390,21 @@ struct PhotosHeatmapView: View {
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                     .animation(.spring(), value: selectedCluster)
                 }
+                
+                // Floating Playback Control HUD in Bottom-Center
+                if isPlaybackActive {
+                    VStack {
+                        Spacer()
+                        HStack {
+                            Spacer()
+                            playbackCardView
+                            Spacer()
+                        }
+                        .padding(.bottom, 24)
+                    }
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .zIndex(5)
+                }
             }
         }
         .onAppear {
@@ -1284,11 +1446,98 @@ struct PhotosHeatmapView: View {
         }
     }
     
+    // Playback specific calculations and helpers
+    private var photosInPeriodCount: Int {
+        filteredPhotosForMap.count
+    }
+    
+    private var geotaggedPhotosInPeriod: [Photo] {
+        filteredPhotosForMap.filter { $0.latitude != nil && $0.longitude != nil }
+    }
+    
+    private var geotaggedPhotosCount: Int {
+        geotaggedPhotosInPeriod.count
+    }
+    
+    private var nonGeotaggedPhotosCount: Int {
+        photosInPeriodCount - geotaggedPhotosCount
+    }
+    
+    private var sortedPhotos: [Photo] {
+        geotaggedPhotosInPeriod.sorted(by: { $0.dateAdded < $1.dateAdded })
+    }
+    
+    private var progressPercentage: Double {
+        guard sortedPhotos.count > 1,
+              let firstDate = sortedPhotos.first?.dateAdded,
+              let lastDate = sortedPhotos.last?.dateAdded else {
+            return 0.0
+        }
+        let activePhoto = sortedPhotos[min(currentPhotoIndex - 1, sortedPhotos.count - 1)]
+        let totalDelta = lastDate - firstDate
+        guard totalDelta > 0 else { return 0.0 }
+        return (activePhoto.dateAdded - firstDate) / totalDelta
+    }
+    
+    private var playbackPhotos: [Photo] {
+        let sorted = sortedPhotos
+        guard isPlaybackActive else { return sorted }
+        let limit = min(currentPhotoIndex, sorted.count)
+        return Array(sorted[0..<limit])
+    }
+    
+    private func computeDynamicClusters(for photos: [Photo], at level: MapZoomLevel) -> [MappedCluster] {
+        let delta = level.representativeDelta
+        var levelDict: [String: [Photo]] = [:]
+        for photo in photos {
+            guard let lat = photo.latitude, let lon = photo.longitude else { continue }
+            let key: String
+            if delta > 40.0 {
+                key = photo.countryName ?? "Unknown Country"
+            } else if delta > 8.0 {
+                if let city = photo.cityName, let country = photo.countryName {
+                    key = "\(city), \(country)"
+                } else {
+                    key = String(format: "%.1f,%.1f", lat, lon)
+                }
+            } else if delta > 2.0 {
+                key = String(format: "%.1f,%.1f", lat, lon)
+            } else if delta > 0.4 {
+                key = String(format: "%.2f,%.2f", lat, lon)
+            } else if delta > 0.08 {
+                key = String(format: "%.3f,%.3f", lat, lon)
+            } else {
+                key = String(format: "%.4f,%.4f", lat, lon)
+            }
+            levelDict[key, default: []].append(photo)
+        }
+        
+        let filteredDict = levelDict.compactMap { key, clusterPhotos -> MappedCluster? in
+            guard !clusterPhotos.isEmpty else { return nil }
+            let first = clusterPhotos.first!
+            let avgLat = clusterPhotos.compactMap(\.latitude).reduce(0.0, +) / Double(clusterPhotos.count)
+            let avgLon = clusterPhotos.compactMap(\.longitude).reduce(0.0, +) / Double(clusterPhotos.count)
+            return MappedCluster(
+                id: key,
+                cityName: first.cityName ?? "Unknown Region",
+                countryName: first.countryName ?? "Unknown Country",
+                coordinate: CLLocationCoordinate2D(latitude: avgLat, longitude: avgLon),
+                photos: clusterPhotos
+            )
+        }
+        
+        return filterClusters(filteredDict)
+    }
+    
     // Dynamic granularity clusters computed on the map visible span delta
     private var mapClusters: [MappedCluster] {
         let zoom = MapZoomLevel.level(forDelta: currentRegion.span.latitudeDelta)
-        let rawClusters = manager.precomputedMapClusters[zoom] ?? []
-        return filterClusters(rawClusters)
+        if isPlaybackActive {
+            return computeDynamicClusters(for: playbackPhotos, at: zoom)
+        } else {
+            let rawClusters = manager.precomputedMapClusters[zoom] ?? []
+            return filterClusters(rawClusters)
+        }
     }
     
     // Clusters computed on the current filtered photos array (constant city/country-level for sidebar)
@@ -1398,6 +1647,7 @@ struct PhotosHeatmapView: View {
             latitudeDelta: max(0.002, current.span.latitudeDelta / 2.5),
             longitudeDelta: max(0.002, current.span.longitudeDelta / 2.5)
         )
+        userPreferredSpan = nextSpan
         centerTrigger = MKCoordinateRegion(center: current.center, span: nextSpan)
     }
     
@@ -1407,6 +1657,7 @@ struct PhotosHeatmapView: View {
             latitudeDelta: min(179.0, current.span.latitudeDelta * 2.5),
             longitudeDelta: min(360.0, current.span.longitudeDelta * 2.5)
         )
+        userPreferredSpan = nextSpan
         centerTrigger = MKCoordinateRegion(center: current.center, span: nextSpan)
     }
     
@@ -1449,5 +1700,311 @@ struct PhotosHeatmapView: View {
         } else {
             return "camera.fill"
         }
+    }
+    
+    // MARK: - Playback Helper Actions
+    
+    private func initializeTour() {
+        previousVisualizationMode = visualizationMode
+        withAnimation(.spring()) {
+            visualizationMode = .routes
+        }
+        
+        let count = sortedPhotos.count
+        if count > 0 {
+            // Default to 10 photos per second, clamped between 3s and 100s
+            let calculated = Double(count) / 10.0
+            playbackDuration = max(3.0, min(calculated, 100.0))
+        } else {
+            playbackDuration = 10.0
+        }
+        currentPhotoIndex = 1
+        lastCenteredCoordinate = nil
+        userPreferredSpan = currentRegion.span // lock initial zoom span preferred by user
+        isPlaybackActive = true
+        
+        if autoPanEnabled, !sortedPhotos.isEmpty {
+            autoPanToActivePhoto(at: 0, force: true)
+        }
+    }
+    
+    private func startAnimation() {
+        guard !sortedPhotos.isEmpty else { return }
+        
+        if currentPhotoIndex >= sortedPhotos.count {
+            currentPhotoIndex = 1
+            lastCenteredCoordinate = nil
+        }
+        
+        currentPhotoIndexDouble = Double(currentPhotoIndex)
+        isPlaybackPlaying = true
+        
+        let totalPhotos = sortedPhotos.count
+        let fps: Double = 30.0
+        
+        playbackTimer?.invalidate()
+        playbackTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / fps, repeats: true) { timer in
+            // Dynamically calculate the fractional index step based on current playbackDuration
+            let step = (Double(totalPhotos) / self.playbackDuration) / fps
+            self.currentPhotoIndexDouble = min(Double(totalPhotos), self.currentPhotoIndexDouble + step)
+            
+            let newIndex = min(totalPhotos, max(1, Int(self.currentPhotoIndexDouble)))
+            
+            if newIndex != self.currentPhotoIndex {
+                self.currentPhotoIndex = newIndex
+                if self.autoPanEnabled {
+                    self.autoPanToActivePhoto(at: newIndex - 1)
+                }
+            }
+            
+            if self.currentPhotoIndexDouble >= Double(totalPhotos) {
+                self.stopAnimation(finished: true)
+            }
+        }
+    }
+    
+    private func pauseAnimation() {
+        isPlaybackPlaying = false
+        playbackTimer?.invalidate()
+        playbackTimer = nil
+    }
+    
+    private func stopAnimation(finished: Bool = false) {
+        isPlaybackPlaying = false
+        playbackTimer?.invalidate()
+        playbackTimer = nil
+        if !finished {
+            currentPhotoIndex = 1
+            currentPhotoIndexDouble = 1.0
+            lastCenteredCoordinate = nil
+        }
+    }
+    
+    private func closeTour() {
+        stopAnimation()
+        isPlaybackActive = false
+        if let prev = previousVisualizationMode {
+            withAnimation(.spring()) {
+                visualizationMode = prev
+            }
+        }
+    }
+    
+    private func autoPanToActivePhoto(at index: Int, force: Bool = false) {
+        guard index >= 0 && index < sortedPhotos.count else { return }
+        let photo = sortedPhotos[index]
+        guard let lat = photo.latitude, let lon = photo.longitude else { return }
+        let coord = CLLocationCoordinate2D(latitude: lat, longitude: lon)
+        
+        let shouldCenter: Bool
+        if force {
+            shouldCenter = true
+        } else if let last = lastCenteredCoordinate {
+            let latDiff = abs(last.latitude - coord.latitude)
+            let lonDiff = abs(last.longitude - coord.longitude)
+            shouldCenter = latDiff > 0.04 || lonDiff > 0.04
+        } else {
+            shouldCenter = true
+        }
+        
+        if shouldCenter {
+            lastCenteredCoordinate = coord
+            let region = MKCoordinateRegion(
+                center: coord,
+                span: userPreferredSpan
+            )
+            centerTrigger = region
+        }
+    }
+    
+    private func formattedDate(_ timestamp: Double) -> String {
+        let date = Date(timeIntervalSince1970: timestamp)
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .none
+        return formatter.string(from: date)
+    }
+    
+    // Playback Card Subview
+    private var playbackCardView: some View {
+        GlassCard(cornerRadius: 16, shadowRadius: 12) {
+            VStack(spacing: 12) {
+                HStack(alignment: .center, spacing: 12) {
+                    HStack(spacing: 6) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "photo.stack.fill")
+                                .font(.system(size: 10))
+                            Text("\(min(currentPhotoIndex, sortedPhotos.count)) / \(sortedPhotos.count)")
+                                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Color.emerald.opacity(0.15))
+                        .cornerRadius(6)
+                        .foregroundColor(.emerald)
+                        
+                        Text("(\(geotaggedPhotosCount) mapped • \(nonGeotaggedPhotosCount) unmapped)")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundColor(.secondary)
+                    }
+                    
+                    if !sortedPhotos.isEmpty {
+                        let activePhoto = sortedPhotos[min(currentPhotoIndex - 1, sortedPhotos.count - 1)]
+                        let firstPhoto = sortedPhotos.first!
+                        let lastPhoto = sortedPhotos.last!
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(formattedDate(activePhoto.dateAdded))
+                                .font(.system(size: 11, weight: .bold, design: .rounded))
+                                .foregroundColor(.white)
+                            
+                            ZStack(alignment: .leading) {
+                                Capsule()
+                                    .fill(Color.white.opacity(0.12))
+                                    .frame(height: 3)
+                                
+                                Capsule()
+                                    .fill(Color.emerald)
+                                    .frame(width: 140 * CGFloat(progressPercentage), height: 3)
+                            }
+                            .frame(width: 140, height: 3)
+                            
+                            HStack(spacing: 0) {
+                                Text(formattedDate(firstPhoto.dateAdded))
+                                    .font(.system(size: 7))
+                                    .foregroundColor(.secondary)
+                                Spacer()
+                                Text(formattedDate(lastPhoto.dateAdded))
+                                    .font(.system(size: 7))
+                                    .foregroundColor(.secondary)
+                            }
+                            .frame(width: 140)
+                        }
+                    } else {
+                        Text("No photos to play")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundColor(.secondary)
+                    }
+                    
+                    Spacer()
+                    
+                    Button(action: {
+                        withAnimation(.spring()) {
+                            autoPanEnabled.toggle()
+                        }
+                    }) {
+                        Image(systemName: autoPanEnabled ? "location.circle.fill" : "location.circle")
+                            .font(.system(size: 14))
+                            .foregroundColor(autoPanEnabled ? .emerald : .secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Auto-pan map to active photo location")
+                    
+                    Button(action: {
+                        withAnimation(.spring()) {
+                            closeTour()
+                        }
+                    }) {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 14))
+                            .foregroundColor(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.horizontal, 4)
+                
+                Divider().background(Color.white.opacity(0.06))
+                
+                HStack(spacing: 12) {
+                    Button(action: {
+                        if isPlaybackPlaying {
+                            pauseAnimation()
+                        } else {
+                            startAnimation()
+                        }
+                    }) {
+                        Image(systemName: isPlaybackPlaying ? "pause.fill" : "play.fill")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundColor(.white)
+                            .frame(width: 28, height: 28)
+                            .background(Color.emerald.opacity(0.85))
+                            .clipShape(Circle())
+                            .shadow(color: .emerald.opacity(0.3), radius: 3)
+                    }
+                    .buttonStyle(.plain)
+                    
+                    Button(action: {
+                        stopAnimation()
+                    }) {
+                        Image(systemName: "backward.end.fill")
+                            .font(.system(size: 10))
+                            .foregroundColor(.white.opacity(0.8))
+                            .frame(width: 24, height: 24)
+                            .background(Color.white.opacity(0.05))
+                            .clipShape(Circle())
+                    }
+                    .buttonStyle(.plain)
+                    
+                    if !sortedPhotos.isEmpty {
+                        Slider(
+                            value: Binding(
+                                get: { Double(currentPhotoIndex) },
+                                set: { newValue in
+                                    pauseAnimation()
+                                    currentPhotoIndex = max(1, min(Int(newValue), sortedPhotos.count))
+                                    if autoPanEnabled {
+                                        autoPanToActivePhoto(at: currentPhotoIndex - 1)
+                                    }
+                                }
+                            ),
+                            in: 1...Double(sortedPhotos.count),
+                            step: 1
+                        )
+                        .accentColor(.emerald)
+                    } else {
+                        Slider(value: .constant(0), in: 0...1)
+                            .disabled(true)
+                    }
+                }
+                
+                HStack(spacing: 8) {
+                    Text("Duration")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundColor(.secondary)
+                        .textCase(.uppercase)
+                    
+                    Slider(
+                        value: Binding(
+                            get: { playbackDuration },
+                            set: { newValue in
+                                playbackDuration = newValue
+                                if isPlaybackPlaying {
+                                    startAnimation()
+                                }
+                            }
+                        ),
+                        in: 2.0...100.0
+                    )
+                    .accentColor(.cyan)
+                    
+                    Text("\(Int(playbackDuration))s")
+                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        .foregroundColor(.cyan)
+                        .frame(width: 28, alignment: .trailing)
+                    
+                    Divider()
+                        .frame(height: 12)
+                        .background(Color.white.opacity(0.08))
+                    
+                    let speed = sortedPhotos.isEmpty ? 0 : Int(round(Double(sortedPhotos.count) / playbackDuration))
+                    Text("\(speed) photos/s")
+                        .font(.system(size: 10, weight: .bold, design: .rounded))
+                        .foregroundColor(.secondary)
+                }
+                .padding(.top, 4)
+            }
+            .padding(14)
+        }
+        .frame(width: 440)
+        .glassCardHoverEffect(cornerRadius: 16)
     }
 }
