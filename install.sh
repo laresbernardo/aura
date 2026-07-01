@@ -98,6 +98,7 @@ swiftc -O -sdk "$SDK_PATH" \
     "$SRC_STAGING/AuraApp/Views/PhotosBehaviorView.swift" \
     "$SRC_STAGING/AuraApp/Views/PhotosPlacesView.swift" \
     "$SRC_STAGING/AuraApp/Views/PhotosHeatmapView.swift" \
+    "$SRC_STAGING/AuraApp/Views/PhotoThumbnailView.swift" \
     "$SRC_STAGING/AuraApp/Views/PhotosAuraView.swift" \
     "$SRC_STAGING/AuraApp/MusicDashboardApp.swift"
 

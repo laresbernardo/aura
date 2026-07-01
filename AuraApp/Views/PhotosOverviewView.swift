@@ -327,13 +327,15 @@ struct PhotosMetricCard: View {
     let icon: String
     let gradient: LinearGradient
     var action: (() -> Void)? = nil
+    var photo: Photo? = nil
+    var sourceMode: PhotosLibraryManager.SourceMode = .demo
     
     @State private var isHovered = false
     
     var body: some View {
         GlassCard(cornerRadius: 14, shadowRadius: 8) {
             VStack(alignment: .leading, spacing: 12) {
-                HStack {
+                HStack(spacing: 6) {
                     Text(title)
                         .font(.system(size: 9, weight: .bold, design: .rounded))
                         .foregroundColor(.secondary)
@@ -341,6 +343,11 @@ struct PhotosMetricCard: View {
                         .lineLimit(1)
                     
                     Spacer()
+                    
+                    if let photo = photo {
+                        PhotoThumbnailView(photoId: photo.id, sourceMode: sourceMode, size: CGSize(width: 28, height: 21))
+                            .photoPreviewHover(photo: photo, sourceMode: sourceMode)
+                    }
                     
                     if let action = action {
                         Button(action: action) {

@@ -102,6 +102,7 @@ struct PhotosPlacesView: View {
                         gradient: LinearGradient(colors: [.cyan, .blue], startPoint: .topLeading, endPoint: .bottomTrailing)
                     )
                     
+                    // /Users/bernardo/Library/CloudStorage/GoogleDrive-laresbernardo@gmail.com/My Drive/Documentos/Antigravity/Aura/AuraApp/Views/PhotosPlacesView.swift
                     // KPI 2: Max Elevation
                     PhotosMetricCard(
                         title: "Maximum Altitude",
@@ -113,7 +114,9 @@ struct PhotosPlacesView: View {
                             if let photo = manager.maxAltitudePhoto {
                                 manager.revealPhotoInPhotosApp(photoId: photo.id)
                             }
-                        } : nil
+                        } : nil,
+                        photo: manager.maxAltitudePhoto,
+                        sourceMode: manager.sourceMode
                     )
                     
                     // KPI 3: Northern-most Photo
@@ -127,7 +130,9 @@ struct PhotosPlacesView: View {
                             if let photo = manager.northernMostPhoto {
                                 manager.revealPhotoInPhotosApp(photoId: photo.id)
                             }
-                        } : nil
+                        } : nil,
+                        photo: manager.northernMostPhoto,
+                        sourceMode: manager.sourceMode
                     )
                     
                     // KPI 4: Southern-most Photo
@@ -141,7 +146,9 @@ struct PhotosPlacesView: View {
                             if let photo = manager.southernMostPhoto {
                                 manager.revealPhotoInPhotosApp(photoId: photo.id)
                             }
-                        } : nil
+                        } : nil,
+                        photo: manager.southernMostPhoto,
+                        sourceMode: manager.sourceMode
                     )
                 }
                 

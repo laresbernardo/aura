@@ -981,6 +981,30 @@ struct PhotosHeatmapView: View {
                 .padding(16)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 
+                // Date Range Note - Top Centered
+                if !visiblePhotos.isEmpty {
+                    GlassCard(cornerRadius: 8, shadowRadius: 4, borderColor: Color.white.opacity(0.08), backgroundColor: Color.black.opacity(0.3)) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "calendar")
+                                .font(.system(size: 9))
+                                .foregroundColor(.secondary)
+                            Text(visiblePhotosDateRange)
+                                .font(.system(size: 9.5, weight: .semibold, design: .rounded))
+                                .foregroundColor(.white.opacity(0.85))
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                    }
+                    .padding(.top, 16)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    .allowsHitTesting(false)
+                    .transition(.asymmetric(
+                        insertion: .opacity.combined(with: .move(edge: .top)),
+                        removal: .opacity.combined(with: .move(edge: .top))
+                    ))
+                    .animation(.spring(response: 0.3, dampingFraction: 0.8), value: visiblePhotosDateRange)
+                }
+                
                 // Floating Collapsible Style Picker HUD in Bottom-Right
                 VStack(alignment: .trailing, spacing: 8) {
                     if isStyleMenuExpanded {
@@ -1317,51 +1341,50 @@ struct PhotosHeatmapView: View {
                             }
                             
                             // Individual Photos List
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text("Captures in Hub")
-                                    .font(.system(size: 8, weight: .bold))
-                                    .foregroundColor(.secondary)
-                                    .textCase(.uppercase)
-                                
-                                ScrollView(.vertical, showsIndicators: true) {
-                                    VStack(spacing: 4) {
-                                        ForEach(cluster.photos) { photo in
-                                            HStack(spacing: 6) {
-                                                Image(systemName: photo.mediaType == "Video" ? "video.fill" : "photo.fill")
-                                                    .font(.system(size: 8))
-                                                    .foregroundColor(.emerald.opacity(0.7))
-                                                
-                                                Text(photo.filename)
-                                                    .font(.system(size: 9, weight: .medium, design: .monospaced))
-                                                    .foregroundColor(.white.opacity(0.85))
-                                                    .lineLimit(1)
-                                                
-                                                Spacer()
-                                                
-                                                if manager.sourceMode == .direct {
-                                                    Button(action: {
-                                                        manager.revealPhotoInPhotosApp(photoId: photo.id)
-                                                    }) {
-                                                        Image(systemName: "arrow.up.forward.app")
-                                                            .font(.system(size: 9, weight: .bold))
-                                                            .foregroundColor(.emerald)
-                                                    }
-                                                    .buttonStyle(.plain)
-                                                    .help("Reveal photo in Photos app")
-                                                }
-                                            }
-                                            .padding(.horizontal, 6)
-                                            .padding(.vertical, 4)
-                                            .background(Color.white.opacity(0.03))
-                                            .cornerRadius(6)
-                                        }
-                                    }
-                                }
-                                .frame(height: 90)
-                                .padding(4)
-                                .background(Color.black.opacity(0.15))
-                                .cornerRadius(6)
-                            }
+                             VStack(alignment: .leading, spacing: 6) {
+                                 Text("Captures in Hub")
+                                     .font(.system(size: 8, weight: .bold))
+                                     .foregroundColor(.secondary)
+                                     .textCase(.uppercase)
+                                 
+                                 ScrollView(.vertical, showsIndicators: true) {
+                                     LazyVStack(spacing: 4) {
+                                         ForEach(cluster.photos) { photo in
+                                             HStack(spacing: 6) {
+                                                 PhotoThumbnailView(photoId: photo.id, sourceMode: manager.sourceMode)
+                                                 
+                                                 Text(photo.filename)
+                                                     .font(.system(size: 9, weight: .medium, design: .monospaced))
+                                                     .foregroundColor(.white.opacity(0.85))
+                                                     .lineLimit(1)
+                                                 
+                                                 Spacer()
+                                                 
+                                                 if manager.sourceMode == .direct {
+                                                     Button(action: {
+                                                         manager.revealPhotoInPhotosApp(photoId: photo.id)
+                                                     }) {
+                                                         Image(systemName: "arrow.up.forward.app")
+                                                             .font(.system(size: 9, weight: .bold))
+                                                             .foregroundColor(.emerald)
+                                                     }
+                                                     .buttonStyle(.plain)
+                                                     .help("Reveal photo in Photos app")
+                                                 }
+                                             }
+                                             .padding(.horizontal, 6)
+                                             .padding(.vertical, 4)
+                                             .background(Color.white.opacity(0.03))
+                                             .cornerRadius(6)
+                                             .photoPreviewHover(photo: photo, sourceMode: manager.sourceMode)
+                                         }
+                                     }
+                                 }
+                                 .frame(height: 90)
+                                 .padding(4)
+                                 .background(Color.black.opacity(0.15))
+                                 .cornerRadius(6)
+                             }
                             
                             // Fly to Zoom closer
                             Button(action: {
@@ -1415,6 +1438,56 @@ struct PhotosHeatmapView: View {
     }
     
     // MARK: - Calculations
+    
+    private func isCoordinate(_ coord: CLLocationCoordinate2D, inside region: MKCoordinateRegion) -> Bool {
+        let latMin = region.center.latitude - region.span.latitudeDelta / 2.0
+        let latMax = region.center.latitude + region.span.latitudeDelta / 2.0
+        
+        let lonMin = region.center.longitude - region.span.longitudeDelta / 2.0
+        let lonMax = region.center.longitude + region.span.longitudeDelta / 2.0
+        
+        if lonMin >= -180.0 && lonMax <= 180.0 {
+            return coord.latitude >= latMin && coord.latitude <= latMax &&
+                   coord.longitude >= lonMin && coord.longitude <= lonMax
+        }
+        
+        let latOk = coord.latitude >= latMin && coord.latitude <= latMax
+        guard latOk else { return false }
+        
+        let lonMinWrapped = lonMin < -180.0 ? lonMin + 360.0 : lonMin
+        let lonMaxWrapped = lonMax > 180.0 ? lonMax - 360.0 : lonMax
+        
+        if lonMin < -180.0 {
+            return coord.longitude >= lonMinWrapped || coord.longitude <= lonMax
+        } else {
+            return coord.longitude >= lonMin || coord.longitude <= lonMaxWrapped
+        }
+    }
+    
+    private var visiblePhotos: [Photo] {
+        let photosToCheck = isPlaybackActive ? playbackPhotos : filteredPhotosForMap
+        return photosToCheck.filter { photo in
+            guard let lat = photo.latitude, let lon = photo.longitude else { return false }
+            return isCoordinate(CLLocationCoordinate2D(latitude: lat, longitude: lon), inside: currentRegion)
+        }
+    }
+    
+    private var visiblePhotosDateRange: String {
+        let photos = visiblePhotos
+        guard !photos.isEmpty else { return "" }
+        let dates = photos.map(\.dateAdded)
+        let minDate = Date(timeIntervalSince1970: dates.min() ?? 0)
+        let maxDate = Date(timeIntervalSince1970: dates.max() ?? 0)
+        
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .none
+        
+        if Calendar.current.isDate(minDate, inSameDayAs: maxDate) {
+            return formatter.string(from: minDate)
+        }
+        return "\(formatter.string(from: minDate)) – \(formatter.string(from: maxDate))"
+    }
     
     private var devicePhotoCounts: [String: Int] {
         var counts: [String: Int] = [:]
