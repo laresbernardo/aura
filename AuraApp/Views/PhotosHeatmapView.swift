@@ -468,8 +468,8 @@ struct HeatmapMapView: NSViewRepresentable {
                 return HeatmapOverlayRenderer(circle: heatmapCircle, count: count, maxCount: maxCount)
             } else if let polyline = overlay as? MKPolyline {
                 let renderer = MKPolylineRenderer(polyline: polyline)
-                renderer.strokeColor = NSColor(red: 16/255, green: 185/255, blue: 129/255, alpha: 0.85) // Aura Emerald
-                renderer.lineWidth = 3.5
+                renderer.strokeColor = NSColor(red: 16/255, green: 185/255, blue: 129/255, alpha: 0.6) // Aura Emerald, thinner and translucent
+                renderer.lineWidth = 1.5
                 renderer.lineCap = .round
                 renderer.lineJoin = .round
                 return renderer
@@ -1385,8 +1385,8 @@ struct PhotosHeatmapView: View {
         let region = MKCoordinateRegion(
             center: center,
             span: MKCoordinateSpan(
-                latitudeDelta: min(latDelta, 140.0),
-                longitudeDelta: min(lonDelta, 300.0)
+                latitudeDelta: min(latDelta, 179.0),
+                longitudeDelta: min(lonDelta, 360.0)
             )
         )
         centerTrigger = region
@@ -1404,8 +1404,8 @@ struct PhotosHeatmapView: View {
     private func zoomOut() {
         let current = currentRegion
         let nextSpan = MKCoordinateSpan(
-            latitudeDelta: min(140.0, current.span.latitudeDelta * 2.5),
-            longitudeDelta: min(300.0, current.span.longitudeDelta * 2.5)
+            latitudeDelta: min(179.0, current.span.latitudeDelta * 2.5),
+            longitudeDelta: min(360.0, current.span.longitudeDelta * 2.5)
         )
         centerTrigger = MKCoordinateRegion(center: current.center, span: nextSpan)
     }
