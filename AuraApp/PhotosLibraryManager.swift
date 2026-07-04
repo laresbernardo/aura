@@ -1070,6 +1070,7 @@ class PhotosLibraryManager: ObservableObject {
         var destCounts: [String: (city: String, country: String, count: Int)] = [:]
         for item in photos {
             guard let city = item.cityName, let country = item.countryName else { continue }
+            if city == "Unknown City" || country == "Unknown Country" { continue }
             let key = "\(city), \(country)"
             if let existing = destCounts[key] {
                 destCounts[key] = (city, country, existing.count + 1)
@@ -1078,8 +1079,8 @@ class PhotosLibraryManager: ObservableObject {
             }
         }
         let destinations = destCounts.values.map { DestinationStat(city: $0.city, country: $0.country, count: $0.count) }.sorted(by: { $0.count > $1.count })
-        let totalCitiesVisited = Set(photos.compactMap(\.cityName)).count
-        let totalCountriesVisited = Set(photos.compactMap(\.countryName)).count
+        let totalCitiesVisited = Set(photos.compactMap(\.cityName).filter { $0 != "Unknown City" }).count
+        let totalCountriesVisited = Set(photos.compactMap(\.countryName).filter { $0 != "Unknown Country" }).count
         
         let validPhotos = photos.filter { photo in
             guard let alt = photo.altitude else { return false }

@@ -5,6 +5,7 @@ struct PhotosPlacesView: View {
     @ObservedObject var manager: PhotosLibraryManager
     
     @State private var hoveredBucketLabel: String? = nil
+    @State private var searchQuery: String = ""
     
     enum DestinationGrouping: String, CaseIterable, Identifiable {
         case city = "City"
@@ -177,12 +178,49 @@ struct PhotosPlacesView: View {
                                 .frame(width: 150)
                             }
                             
+                            // Search Bar
+                            HStack(spacing: 8) {
+                                Image(systemName: "magnifyingglass")
+                                    .foregroundColor(.secondary)
+                                    .font(.system(size: 12))
+                                
+                                TextField("Search destinations...", text: $searchQuery)
+                                    .textFieldStyle(.plain)
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.white)
+                                
+                                if !searchQuery.isEmpty {
+                                    Button(action: { searchQuery = "" }) {
+                                        Image(systemName: "xmark.circle.fill")
+                                            .foregroundColor(.secondary)
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 7)
+                            .background(Color.white.opacity(0.05))
+                            .cornerRadius(8)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .stroke(Color.white.opacity(0.1), lineWidth: 1)
+                            )
+                            
                             Divider().background(Color.white.opacity(0.06))
                             
                             if manager.destinations.isEmpty {
                                 HStack {
                                     Spacer()
                                     Text("No geocoded place metadata found.")
+                                        .foregroundColor(.secondary)
+                                        .padding()
+                                    Spacer()
+                                }
+                                .frame(height: 200)
+                            } else if groupedDestinations.isEmpty {
+                                HStack {
+                                    Spacer()
+                                    Text("No matching locations found.")
                                         .foregroundColor(.secondary)
                                         .padding()
                                     Spacer()
@@ -227,7 +265,7 @@ struct PhotosPlacesView: View {
                                         }
                                     }
                                 }
-                                .frame(height: 240)
+                                .frame(height: 200)
                             }
                         }
                         .padding(24)
@@ -326,8 +364,9 @@ struct PhotosPlacesView: View {
     
     // MARK: - Places Helpers
     private var groupedDestinations: [GroupedDestination] {
+        let baseDestinations: [GroupedDestination]
         if destinationGrouping == .city {
-            return manager.destinations.map {
+            baseDestinations = manager.destinations.map {
                 GroupedDestination(
                     name: $0.city,
                     subname: $0.country,
@@ -346,7 +385,7 @@ struct PhotosPlacesView: View {
                     countryCounts[dest.country] = (shots: dest.count, cities: [dest.city])
                 }
             }
-            return countryCounts.map { country, data in
+            baseDestinations = countryCounts.map { country, data in
                 let cityCount = data.cities.count
                 let cityLabel = cityCount == 1 ? "1 city visited" : "\(cityCount) cities visited"
                 return GroupedDestination(
@@ -355,6 +394,16 @@ struct PhotosPlacesView: View {
                     count: data.shots
                 )
             }.sorted(by: { $0.count > $1.count })
+        }
+        
+        if searchQuery.isEmpty {
+            return baseDestinations
+        } else {
+            let lower = searchQuery.lowercased()
+            return baseDestinations.filter {
+                $0.name.lowercased().contains(lower) ||
+                $0.subname.lowercased().contains(lower)
+            }
         }
     }
 }
