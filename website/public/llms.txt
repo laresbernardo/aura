@@ -1,0 +1,7 @@
+# Aura
+
+> Native macOS SwiftUI app that turns Apple Music and Photos libraries into premium interactive analytics dashboards. 100% local, offline, and private.
+
+- [Website](https://aura.bervos.org/): Landing page and DMG download.
+- [GitHub](https://github.com/laresbernardo/aura): Source code and releases.
+- [BERVOS](https://bervos.org/): Part of the BERVOS ecosystem.
