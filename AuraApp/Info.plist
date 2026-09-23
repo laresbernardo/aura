@@ -17,9 +17,9 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.0.125</string>
+	<string>1.0.126</string>
 	<key>CFBundleVersion</key>
-	<string>126</string>
+	<string>127</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>13.0</string>
 	<key>NSAppleEventsUsageDescription</key>
@@ -30,3 +30,4 @@
 	<string>Aura requires access to your Photo Library to fetch capture dates, camera models, and locations for your personal dashboard.</string>
 </dict>
 </plist>
+
