@@ -77,7 +77,7 @@ find "$SRC_STAGING" -type f -exec touch {} +
 sleep 1
 
 for ARCH in arm64 x86_64; do
-swiftc -O -sdk "$SDK_PATH" -target "$ARCH-apple-macosx13.0" \
+swiftc -O -sdk "$SDK_PATH" -target "$ARCH-apple-macosx14.0" \
     -o "$BUILD_DIR/Aura-$ARCH" \
     "$SRC_STAGING/AuraApp/UpdateManifest.swift" \
     "$SRC_STAGING/AuraApp/UpdateChecker.swift" \

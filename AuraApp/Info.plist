@@ -21,7 +21,7 @@
 	<key>CFBundleVersion</key>
 	<string>129</string>
 	<key>LSMinimumSystemVersion</key>
-	<string>13.0</string>
+	<string>14.0</string>
 	<key>NSAppleEventsUsageDescription</key>
 	<string>Aura requires permissions to automate the macOS Music app to fetch song statistics and build your personal dashboard.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
