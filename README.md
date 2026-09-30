@@ -65,7 +65,7 @@ Think of it as **Spotify Wrapped and visual library insights, live and always up
 - **Pure SwiftUI + Swift Charts**: No third-party dependencies.
 - **Glassmorphic UI**: Integrates `NSVisualEffectView` via `NSViewRepresentable` to create frosted glass responsive layouts.
 - **Offline Demo Mode**: Pre-loaded with 120+ music tracks and 1,320 photos so dashboards are interactive immediately.
-- **Privacy-first**: Parses files locally and utilizes direct read-only sandbox bridges. Data never leaves your machine.
+- **Privacy-first**: Parses files locally and utilizes direct read-only sandbox bridges. Music and photo data never leave your machine. A small anonymous HTTPS request to aura.bervos.org checks for updates at launch and at most daily on reactivation; it sends no library data or device identifier.
 
 ---
 
@@ -75,6 +75,8 @@ Think of it as **Spotify Wrapped and visual library insights, live and always up
 
 1. Download the latest pre-compiled **Aura.dmg** directly from [aura.bervos.org](https://aura.bervos.org).
 2. Open the downloaded `.dmg` file and drag **Aura** to your `/Applications` directory.
+
+Aura includes a compact update notice and an **Aura → Check for Updates** command. Updates are free: download the DMG, quit Aura, and drag the replacement into Applications. "Later" suppresses automatic notices for that release. Existing installations need one manual update to gain this checker.
 
 ### Option 2: Build From Source
 
