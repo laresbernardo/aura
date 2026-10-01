@@ -18,17 +18,13 @@ PLIST_FILE="$SOURCE_DIR/AuraApp/Info.plist"
 NEW_VERSION="Unknown"
 NEW_BUILD="Unknown"
 
-if [ -f "$PLIST_FILE" ]; then
-    CURRENT_VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$PLIST_FILE")
-    IFS='.' read -r major minor patch <<< "$CURRENT_VERSION"
-    NEXT_PATCH=$((patch + 1))
-    NEW_VERSION="$major.$minor.$NEXT_PATCH"
-    /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $NEW_VERSION" "$PLIST_FILE"
-    
-    CURRENT_BUILD=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$PLIST_FILE")
-    NEW_BUILD=$((CURRENT_BUILD + 1))
-    /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $NEW_BUILD" "$PLIST_FILE"
+# Version changes belong in reviewed commits, never as a build side effect.
+if [[ "$OSTYPE" != "darwin"* ]]; then
+    echo "Error: This script requires macOS."
+    exit 1
 fi
+NEW_VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$PLIST_FILE")
+NEW_BUILD=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$PLIST_FILE")
 
 echo -e "${BLUE}==================================================${NC}"
 echo -e "${BLUE}        AURA MAC APP BUILD SYSTEM     ${NC}"
@@ -80,8 +76,11 @@ xattr -rc "$SRC_STAGING"
 find "$SRC_STAGING" -type f -exec touch {} +
 sleep 1
 
-swiftc -O -sdk "$SDK_PATH" \
-    -o "$APP_BUNDLE/Contents/MacOS/Aura" \
+for ARCH in arm64 x86_64; do
+swiftc -O -sdk "$SDK_PATH" -target "$ARCH-apple-macosx14.0" \
+    -o "$BUILD_DIR/Aura-$ARCH" \
+    "$SRC_STAGING/AuraApp/UpdateManifest.swift" \
+    "$SRC_STAGING/AuraApp/UpdateChecker.swift" \
     "$SRC_STAGING/AuraApp/Models.swift" \
     "$SRC_STAGING/AuraApp/ArtistResolver.swift" \
     "$SRC_STAGING/AuraApp/MusicLibraryManager.swift" \
@@ -101,6 +100,8 @@ swiftc -O -sdk "$SDK_PATH" \
     "$SRC_STAGING/AuraApp/Views/PhotoThumbnailView.swift" \
     "$SRC_STAGING/AuraApp/Views/PhotosAuraView.swift" \
     "$SRC_STAGING/AuraApp/MusicDashboardApp.swift"
+done
+lipo -create "$BUILD_DIR/Aura-arm64" "$BUILD_DIR/Aura-x86_64" -output "$APP_BUNDLE/Contents/MacOS/Aura"
 
 rm -rf "$SRC_STAGING"
 
@@ -189,6 +190,9 @@ hdiutil create \
 # Strip quarantine from the DMG itself before copying back to Drive
 xattr -rc "$DMG_LOCAL"
 cp "$DMG_LOCAL" "$FINAL_DMG"
+
+# Publish metadata from the actual packaged app, only after DMG creation succeeds.
+python3 "$SOURCE_DIR/scripts/release_manifest.py" "$APP_BUNDLE/Contents/Info.plist" "$SOURCE_DIR/version.json"
 
 # Clean up /tmp
 rm -rf "$BUILD_DIR"
